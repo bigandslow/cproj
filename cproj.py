@@ -855,10 +855,18 @@ class CprojCLI:
         try:
             if parsed_args.command == 'init' or parsed_args.command in ['new', 'start']:
                 self.cmd_init(parsed_args)
-            elif parsed_args.command == 'worktree' and parsed_args.worktree_command == 'create':
-                self.cmd_worktree_create(parsed_args)
-            elif parsed_args.command == 'review' and parsed_args.review_command == 'open':
-                self.cmd_review_open(parsed_args)
+            elif parsed_args.command == 'worktree' or parsed_args.command == 'w':
+                if parsed_args.worktree_command == 'create':
+                    self.cmd_worktree_create(parsed_args)
+                else:
+                    # Show worktree help when no subcommand given
+                    parser.parse_args(['worktree', '--help'])
+            elif parsed_args.command == 'review':
+                if parsed_args.review_command == 'open':
+                    self.cmd_review_open(parsed_args)
+                else:
+                    # Show review help when no subcommand given
+                    parser.parse_args(['review', '--help'])
             elif parsed_args.command == 'merge':
                 self.cmd_merge(parsed_args)
             elif parsed_args.command in ['list', 'ls']:
