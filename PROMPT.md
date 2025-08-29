@@ -8,12 +8,13 @@ Got it — here’s a single, self-contained “master prompt” you can drop in
 
 ## Key Improvements in This Version
 
-- **Enhanced Security & Privacy**: Config validation, keychain integration, optional network request controls
+- **Enhanced Security & Privacy**: Config validation, 1Password CLI integration, optional network request controls
 - **Better Error Handling**: Graceful degradation, atomic operations with rollback, health checks
-- **Improved UX**: Dry-run flags, progress indicators, color-coded output with no-color option  
+- **Improved UX**: Interactive setup prompts, dry-run flags, progress indicators, color-coded output with no-color option  
 - **Cross-platform Support**: Abstracted terminal automation, platform-appropriate temp dirs
 - **Performance**: Caching, parallel operations, offline mode support
-- **Maintainability**: Structured logging, plugin system, schema versioning
+- **Maintainability**: Structured logging, modern Python packaging, schema versioning
+- **Installation**: Standalone installer with isolated environments to avoid conflicts
 
 ## Capabilities (top-level commands)
 
@@ -168,10 +169,10 @@ Create in **worktree root**; include at minimum:
 * Confirm deletion on `cleanup` unless `--yes`.
 * Handle missing tools with actionable guidance (install commands) and fallback paths.
 * Always log key actions with timestamps; store last log at `<worktree>/.project/last_run.log`.
-* **NEW**: Validate all config inputs to prevent shell injection attacks.
-* **NEW**: Use system keychain/credential store for sensitive tokens (never store in config files).
-* **NEW**: Implement atomic operations with automatic rollback on failure.
-* **NEW**: Add `--dry-run` flag for all destructive operations to preview changes.
+* Validate all config inputs to prevent shell injection attacks.
+* Use 1Password CLI for secure token storage (never store secrets in config files).
+* Implement atomic operations with automatic rollback on failure.
+* Add `--dry-run` flag for all destructive operations to preview changes.
 
 ## Flags & non-interactive usage
 
@@ -182,7 +183,7 @@ For each command, implement CLI flags to bypass prompts and support automation:
 * `review open`: `--draft/--ready`, `--assign <user1,user2>`, `--labels <…>`, `--no-push`, `--no-checks`
 * `merge`: `--squash|--merge|--rebase`, `--delete-remote`, `--keep-worktree`, `--no-ff-check`, `--force`
 * `cleanup`: `--older-than <days>`, `--merged-only`, `--dry-run`
-* **NEW**: All destructive operations support `--dry-run` to preview changes without executing
+* All destructive operations support `--dry-run` to preview changes without executing
 
 ## Detection & defaults
 
@@ -204,12 +205,12 @@ For each command, implement CLI flags to bypass prompts and support automation:
 
 ## Testing & portability
 
-* Target macOS primarily (Terminal/iTerm AppleScript), with **NEW** abstraction layer for Linux/Windows support.
+* Target macOS primarily (Terminal/iTerm AppleScript), with abstraction layer for Linux/Windows support.
 * Make terminal opening optional so CI can run the CLI in headless mode.
 * Include unit tests for argument parsing, worktree lifecycle, and `.agent.json` read/write.
-* **NEW**: Add integration tests that verify end-to-end workflows.
-* **NEW**: Test error handling and recovery scenarios.
-* **NEW**: Platform-specific test suites for terminal automation.
+* Add integration tests that verify end-to-end workflows.
+* Test error handling and recovery scenarios.
+* Platform-specific test suites for terminal automation.
 
 ## Documentation the AI should generate with the code
 
@@ -227,11 +228,12 @@ For each command, implement CLI flags to bypass prompts and support automation:
 * Use **git worktrees** for isolation (option 1), not clones.
 * Adopt **`uv`** for Python by default; fallback to `venv` only if `uv` missing.
 * Persist **`.agent.json`** exactly as specified (extendable fields allowed).
-* Do **not** embed secrets - use system keychain/credential store when needed.
+* Do **not** embed secrets - use 1Password CLI for secure credential storage when needed.
 * Provide both interactive prompts **and** scriptable flags.
-* **NEW**: Implement proper input validation and sanitization for all user inputs.
-* **NEW**: Support graceful degradation when optional tools are missing.
-* **NEW**: Include comprehensive error handling with helpful error messages.
+* Implement proper input validation and sanitization for all user inputs.
+* Support graceful degradation when optional tools are missing.
+* Include comprehensive error handling with helpful error messages.
+* Provide standalone installation method to avoid Python environment conflicts.
 
 ---
 

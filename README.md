@@ -373,19 +373,158 @@ If something goes wrong:
 
 ## Development
 
-### Running Tests
+### Development Workflow
+
+You can develop cproj while having it installed system-wide. Here are the recommended workflows:
+
+#### Option 1: Development with System Install (Recommended)
 ```bash
-python -m pytest test_cproj.py -v
+# Install cproj system-wide first
+make install
+
+# Clone the repo for development  
+git clone https://github.com/bigandslow/cproj.git
+cd cproj
+
+# Work on changes in your editor
+# Test changes directly with Python
+python3 cproj.py --help
+
+# Run tests
+make test
+
+# When ready to test system-wide, reinstall
+make install
+```
+
+#### Option 2: Development Mode with pipx
+```bash
+# Install in development mode with pipx
+pipx install --editable .
+
+# Or install in a virtual environment
+python3 -m venv venv
+source venv/bin/activate
+pip install -e .[dev]
+
+# Make changes and test immediately
+cproj --help
+```
+
+#### Option 3: Dual Installation
+```bash
+# Keep system install for daily use
+make install  # -> ~/.local/bin/cproj
+
+# Install dev version with different name
+pip install -e .[dev]
+ln -sf $(pwd)/cproj.py ~/.local/bin/cproj-dev
+
+# Use stable version: cproj
+# Use dev version: cproj-dev or python3 cproj.py
+```
+
+### Development Commands
+
+```bash
+# Run all development checks
+make dev-check        # Check development environment
+make smoke-test       # Quick functionality test
+make test            # Run full test suite
+make lint            # Code linting
+make format          # Code formatting
+make clean           # Clean build artifacts
+
+# Check installation status  
+make check           # Verify cproj is installed and working
+```
+
+### Testing Changes
+
+```bash
+# Test specific functionality
+python3 cproj.py config --help
+python3 cproj.py init --help
+
+# Test with temporary config (avoids affecting your real config)
+CPROJ_CONFIG_DIR=/tmp/cproj-test python3 cproj.py init
+
+# Test installation process
+./uninstall.sh && ./install.sh
+
+# Test with different Python versions
+python3.8 cproj.py --help
+python3.11 cproj.py --help
+```
+
+### Environment Variables for Development
+
+```bash
+# Override config directory for testing
+export CPROJ_CONFIG_DIR=/tmp/cproj-dev-config
+
+# Override installation paths for testing
+export CPROJ_INSTALL_DIR=/tmp/cproj-test-install
+export CPROJ_BIN_DIR=/tmp/cproj-test-bin
+
+# Use different Python version for testing
+export CPROJ_PYTHON=python3.11
+
+# Test with these settings
+python3 cproj.py init
 ```
 
 ### Code Structure
+
 - `CprojCLI` - Main CLI interface and command routing
-- `GitWorktree` - Git worktree operations
-- `AgentJson` - Metadata file management  
-- `EnvironmentSetup` - Language environment setup
-- `GitHubIntegration` - GitHub API via gh CLI
+- `GitWorktree` - Git worktree operations  
+- `AgentJson` - Metadata file management (.agent.json)
+- `EnvironmentSetup` - Language environment setup (Python/Node/Java)
+- `OnePasswordIntegration` - 1Password CLI integration for secrets
+- `GitHubIntegration` - GitHub API via gh CLI with 1Password auth
 - `TerminalAutomation` - macOS terminal/editor opening
 - `Config` - Configuration management
+
+### Development Troubleshooting
+
+**Multiple cproj versions installed:**
+```bash
+# Check which cproj is being used
+which cproj
+cproj --version 2>/dev/null || echo "No version info"
+
+# See all cproj installations
+find /usr/local/bin ~/.local/bin -name "cproj*" 2>/dev/null
+```
+
+**Config conflicts during development:**
+```bash
+# Use isolated config for development
+mkdir -p /tmp/cproj-dev-config
+CPROJ_CONFIG_DIR=/tmp/cproj-dev-config python3 cproj.py init
+
+# Reset to clean state
+rm -rf ~/.config/cproj
+```
+
+**Testing without affecting system worktrees:**
+```bash
+# Use temporary directory for test worktrees
+mkdir -p /tmp/cproj-test-workspaces
+python3 cproj.py init --temp-root /tmp/cproj-test-workspaces
+
+# Clean up test workspaces
+rm -rf /tmp/cproj-test-workspaces
+```
+
+**Import errors during development:**
+```bash
+# Ensure you're in the right directory
+pwd  # Should be in cproj repo directory
+
+# Test import works
+python3 -c "import cproj; print('Import successful')"
+```
 
 ## License
 
