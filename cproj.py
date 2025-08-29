@@ -794,7 +794,7 @@ class CprojCLI:
         init_parser.add_argument('--clone', help='Clone URL if repo not local')
         
         # worktree create command
-        wt_create = subparsers.add_parser('worktree', help='Worktree commands')
+        wt_create = subparsers.add_parser('worktree', aliases=['w'], help='Worktree commands')
         wt_sub = wt_create.add_subparsers(dest='worktree_command')
         
         create_parser = wt_sub.add_parser('create', help='Create worktree')
