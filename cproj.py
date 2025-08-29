@@ -121,8 +121,8 @@ class GitWorktree:
     """Git worktree management"""
     
     def __init__(self, repo_path: Path):
-        self.repo_path = Path(repo_path)
-        if not (self.repo_path / '.git').exists():
+        self.repo_path = self._find_git_root(Path(repo_path))
+        if not self.repo_path:
             raise CprojError(f"Not a git repository: {repo_path}")
     
     def fetch_all(self):
@@ -243,6 +243,22 @@ class GitWorktree:
             return result.stdout.strip() or None
         except subprocess.CalledProcessError:
             return None
+    
+    def _find_git_root(self, start_path: Path) -> Optional[Path]:
+        """Find the git repository root from any subdirectory"""
+        current = start_path.absolute()
+        
+        # Check if current directory is a git repository
+        while current != current.parent:
+            if (current / '.git').exists():
+                return current
+            current = current.parent
+        
+        # Check root directory
+        if (current / '.git').exists():
+            return current
+        
+        return None
     
     def _run_git(self, args: List[str], cwd: Optional[Path] = None, **kwargs) -> subprocess.CompletedProcess:
         """Run git command"""
@@ -614,6 +630,11 @@ class CprojCLI:
         repo_input = input("Repository path or URL (. for current directory): ").strip()
         if repo_input == '.' or not repo_input:
             repo_path = Path.cwd()
+            # If we're in a subdirectory of a git repo, find the root
+            git_root = self._find_git_root(repo_path)
+            if git_root:
+                repo_path = git_root
+                print(f"Found git repository root at: {repo_path}")
         elif repo_input.startswith('http'):
             # It's a URL, we'll clone it
             clone_to = input(f"Clone to directory [{Path.home() / 'dev' / project_name}]: ").strip()
@@ -621,6 +642,12 @@ class CprojCLI:
             config['clone_url'] = repo_input
         else:
             repo_path = Path(repo_input).expanduser().absolute()
+            # If the path exists and is inside a git repo, find the root
+            if repo_path.exists():
+                git_root = self._find_git_root(repo_path)
+                if git_root:
+                    repo_path = git_root
+                    print(f"Found git repository root at: {repo_path}")
         
         config['repo_path'] = str(repo_path)
         
@@ -854,6 +881,22 @@ class CprojCLI:
             print("\nAborted by user", file=sys.stderr)
             sys.exit(1)
     
+    def _find_git_root(self, start_path: Path) -> Optional[Path]:
+        """Find the git repository root from any subdirectory"""
+        current = start_path.absolute()
+        
+        # Check if current directory is a git repository
+        while current != current.parent:
+            if (current / '.git').exists():
+                return current
+            current = current.parent
+        
+        # Check root directory
+        if (current / '.git').exists():
+            return current
+        
+        return None
+    
     def cmd_init(self, args):
         """Initialize project"""
         # If no arguments provided, run interactive configuration
@@ -885,6 +928,11 @@ class CprojCLI:
             
             if args.clone and not repo_path.exists():
                 subprocess.run(['git', 'clone', args.clone, str(repo_path)], check=True)
+            else:
+                # Find git root if we're in a subdirectory
+                git_root = self._find_git_root(repo_path)
+                if git_root:
+                    repo_path = git_root
             
             project_name = args.name or repo_path.name
             base_branch = args.base or self.config.get('base_branch', 'main')
@@ -893,10 +941,16 @@ class CprojCLI:
             self.config.set('project_name', project_name)
             self.config.set('base_branch', base_branch)
         
-        # Verify git repository
+        # Verify git repository and find root
         final_repo_path = Path(self.config.get('repo_path'))
-        if not (final_repo_path / '.git').exists():
+        git_root = self._find_git_root(final_repo_path)
+        if not git_root:
             raise CprojError(f"Not a git repository: {final_repo_path}")
+        
+        # Update config with the actual git root
+        if git_root != final_repo_path:
+            self.config.set('repo_path', str(git_root))
+            final_repo_path = git_root
         
         print(f"✅ Initialized project '{self.config.get('project_name')}' at {final_repo_path}")
         
