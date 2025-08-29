@@ -154,18 +154,83 @@ class GitWorktree:
         if current_branch and current_branch != base_branch:
             self._run_git(['checkout', current_branch])
     
-    def create_worktree(self, worktree_path: Path, branch: str, base_branch: str) -> Path:
+    def branch_exists(self, branch: str) -> bool:
+        """Check if a branch exists"""
+        try:
+            self._run_git(['show-ref', '--verify', '--quiet', f'refs/heads/{branch}'])
+            return True
+        except subprocess.CalledProcessError:
+            return False
+    
+    def is_branch_checked_out(self, branch: str) -> bool:
+        """Check if a branch is already checked out in a worktree"""
+        try:
+            # List all worktrees and check if any have this branch checked out
+            result = self._run_git(['worktree', 'list', '--porcelain'], capture_output=True, text=True)
+            current_branch = None
+            for line in result.stdout.strip().split('\n'):
+                if line.startswith('branch '):
+                    current_branch = line.split('refs/heads/', 1)[1] if 'refs/heads/' in line else None
+                    if current_branch == branch:
+                        return True
+            return False
+        except subprocess.CalledProcessError:
+            return False
+    
+    def create_worktree(self, worktree_path: Path, branch: str, base_branch: str, interactive: bool = True) -> Path:
         """Create a new worktree"""
         worktree_path.parent.mkdir(parents=True, exist_ok=True)
         
         # Check if branch already exists
-        try:
-            self._run_git(['show-ref', '--verify', '--quiet', f'refs/heads/{branch}'])
-            # Branch exists, use it
-            self._run_git(['worktree', 'add', str(worktree_path), branch])
-        except subprocess.CalledProcessError:
+        if self.branch_exists(branch):
+            # Check if it's already checked out somewhere
+            if self.is_branch_checked_out(branch):
+                if interactive:
+                    print(f"⚠️  Branch '{branch}' is already checked out in another worktree.")
+                    print("\nOptions:")
+                    print("  1. Create worktree with a different branch name")
+                    print("  2. Switch to existing worktree (if you know where it is)")
+                    print("  3. Force create worktree (may cause issues)")
+                    print("  4. Cancel")
+                    
+                    while True:
+                        choice = input("Choose option [1-4]: ").strip()
+                        if choice == '1':
+                            new_branch = input("Enter new branch name: ").strip()
+                            if new_branch:
+                                branch = new_branch
+                                break
+                            else:
+                                print("❌ Branch name cannot be empty")
+                                continue
+                        elif choice == '2':
+                            raise CprojError(f"Branch '{branch}' is checked out elsewhere. Use 'git worktree list' to find it.")
+                        elif choice == '3':
+                            # Force create new worktree, detaching the branch from current location
+                            try:
+                                self._run_git(['worktree', 'add', '--force', str(worktree_path), branch])
+                                return worktree_path
+                            except subprocess.CalledProcessError as e:
+                                raise CprojError(f"Failed to force create worktree: {e}")
+                        elif choice == '4':
+                            raise CprojError("Worktree creation cancelled by user")
+                        else:
+                            print("❌ Please enter 1, 2, 3, or 4")
+                            continue
+                else:
+                    raise CprojError(f"Branch '{branch}' is already checked out. Use --force to override or choose a different branch name.")
+            
+            # Branch exists but not checked out, use it
+            try:
+                self._run_git(['worktree', 'add', str(worktree_path), branch])
+            except subprocess.CalledProcessError as e:
+                raise CprojError(f"Failed to create worktree with existing branch '{branch}': {e}")
+        else:
             # Branch doesn't exist, create it
-            self._run_git(['worktree', 'add', '-b', branch, str(worktree_path), base_branch])
+            try:
+                self._run_git(['worktree', 'add', '-b', branch, str(worktree_path), base_branch])
+            except subprocess.CalledProcessError as e:
+                raise CprojError(f"Failed to create new branch '{branch}': {e}")
         
         return worktree_path
     
@@ -1161,7 +1226,7 @@ class CprojCLI:
         worktree_path = temp_root / worktree_name
         
         # Create worktree
-        git.create_worktree(worktree_path, args.branch, base_branch)
+        git.create_worktree(worktree_path, args.branch, base_branch, interactive=self._is_interactive())
         
         # Setup environment
         env_setup = EnvironmentSetup(worktree_path)
