@@ -1511,9 +1511,21 @@ class CprojCLI:
                         # Check if this is the current worktree
                         is_current = False
                         try:
-                            is_current = current_worktree.resolve() == path.resolve()
-                        except:
-                            pass
+                            # Use absolute paths and resolve any symlinks
+                            current_abs = current_worktree.resolve()
+                            path_abs = path.resolve()
+                            is_current = current_abs == path_abs
+                            
+                            # Additional check - see if we're inside this worktree
+                            if not is_current:
+                                try:
+                                    current_abs.relative_to(path_abs)
+                                    is_current = True
+                                except ValueError:
+                                    pass  # current_worktree is not under path
+                        except Exception:
+                            # Fallback comparison
+                            is_current = str(current_worktree) == str(path)
                         
                         current_indicator = " [CURRENT]" if is_current else ""
                         default_answer = "n" if is_current else "y"
@@ -1528,8 +1540,10 @@ class CprojCLI:
                                     print("⚠️  Cannot remove current worktree. Skipping.")
                                 else:
                                     selected_for_removal.append(wt)
+                                    print(f"✓ Added {path.name} to removal list")
                                 break
                             elif answer in ['n', 'no']:
+                                print(f"○ Keeping {path.name}")
                                 break
                             else:
                                 print("❌ Please enter y or n")
@@ -1551,13 +1565,20 @@ class CprojCLI:
                         return
                     
                     # Remove selected worktrees
+                    print(f"\n🗑️  Removing {len(selected_for_removal)} worktree(s)...")
+                    removed_count = 0
                     for wt in selected_for_removal:
                         path = Path(wt['path'])
+                        branch = wt.get('branch', 'N/A')
+                        print(f"Removing {path.name} [{branch}]...")
                         try:
                             git.remove_worktree(path, force=True)
-                            print(f"✅ Removed: {path}")
+                            print(f"✅ Successfully removed: {path.name}")
+                            removed_count += 1
                         except Exception as e:
-                            print(f"❌ Failed to remove {path}: {e}")
+                            print(f"❌ Failed to remove {path.name}: {e}")
+                    
+                    print(f"\n📊 Cleanup complete: {removed_count}/{len(selected_for_removal)} worktrees removed")
                     
                     return
                     
