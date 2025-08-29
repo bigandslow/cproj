@@ -899,10 +899,39 @@ class CprojCLI:
     
     def cmd_init(self, args):
         """Initialize project"""
-        # If no arguments provided, run interactive configuration
-        if not any([args.repo, args.name, args.clone]) and not self.config.get('repo_path'):
-            config_data = self._prompt_for_config()
-            
+        # Check if we're in a different git repository than configured
+        current_git_root = self._find_git_root(Path.cwd())
+        configured_repo = self.config.get('repo_path')
+        
+        # If no arguments provided, detect current repo or run interactive config
+        if not any([args.repo, args.name, args.clone]):
+            if current_git_root and (not configured_repo or str(current_git_root) != configured_repo):
+                # We're in a different git repo, update config for this repo
+                repo_path = current_git_root
+                project_name = args.name or repo_path.name
+                base_branch = args.base or self.config.get('base_branch', 'main')
+                
+                self.config.set('repo_path', str(repo_path))
+                self.config.set('project_name', project_name)
+                self.config.set('base_branch', base_branch)
+                
+                print(f"✅ Initialized project '{project_name}' at {repo_path}")
+                print()
+                print("🎉 Ready to go! Try these commands:")
+                print(f"  cproj worktree create --branch feature/awesome-feature")
+                print(f"  cproj list")
+                print(f"  cproj config")
+                return
+            elif not self.config.get('repo_path'):
+                # No config at all, run interactive setup
+                config_data = self._prompt_for_config()
+            else:
+                # Use existing config but show current status
+                final_repo_path = Path(configured_repo)
+                print(f"✅ Using existing project '{self.config.get('project_name')}' at {final_repo_path}")
+                return
+        
+        if 'config_data' in locals():
             # Save all configuration
             for key, value in config_data.items():
                 self.config.set(key, value)
