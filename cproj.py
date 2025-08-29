@@ -868,7 +868,7 @@ class CprojCLI:
         create_parser.add_argument('--python-install', action='store_true', help='Auto-install Python deps')
         create_parser.add_argument('--node-install', action='store_true', help='Auto-install Node deps')
         create_parser.add_argument('--java-build', action='store_true', help='Auto-build Java')
-        create_parser.add_argument('--no-open', action='store_true', help='Don\'t open terminal/editor')
+        create_parser.add_argument('--open', action='store_true', help='Open terminal and editor after creating worktree')
         
         # review command
         review_parser = subparsers.add_parser('review', help='Review commands')
@@ -1250,8 +1250,8 @@ class CprojCLI:
         print(f"Created worktree: {worktree_path}")
         print(f"Branch: {args.branch}")
         
-        # Open terminal and editor
-        if not args.no_open:
+        # Open terminal and editor if requested
+        if args.open:
             terminal_app = args.terminal or self.config.get('terminal', 'Terminal')
             editor = args.editor or self.config.get('editor', 'code')
             
