@@ -1251,18 +1251,37 @@ class CprojCLI:
             raise CprojError("Worktree has uncommitted changes. Use --force to override.")
         
         # Merge PR if GitHub available
+        merge_successful = False
         if GitHubIntegration.is_available():
-            if GitHubIntegration.merge_pr(args.squash, args.delete_remote):
+            merge_successful = GitHubIntegration.merge_pr(args.squash, args.delete_remote)
+            if merge_successful:
                 print("PR merged successfully")
+            else:
+                print("❌ PR merge failed. Keeping worktree for you to continue working.")
+                print("Common reasons:")
+                print("  - PR is still in draft mode (use 'gh pr ready' or mark ready in GitHub)")
+                print("  - PR needs approval from reviewers")
+                print("  - PR has merge conflicts")
+                print("  - Branch protection rules not satisfied")
+                return
+        else:
+            print("⚠️  GitHub CLI not available. Please merge manually in GitHub.")
+            print("After merging, you can clean up with:")
+            print(f"  git worktree remove --force {worktree_path}")
+            return
         
-        # Close workspace
-        agent_json.close_workspace()
-        agent_json.save()
-        
-        # Remove worktree
-        if not args.keep_worktree:
-            git.remove_worktree(worktree_path, force=True)
-            print(f"Removed worktree: {worktree_path}")
+        # Only proceed with cleanup if merge was successful
+        if merge_successful:
+            # Close workspace
+            agent_json.close_workspace()
+            agent_json.save()
+            
+            # Remove worktree
+            if not args.keep_worktree:
+                git.remove_worktree(worktree_path, force=True)
+                print(f"Removed worktree: {worktree_path}")
+            else:
+                print(f"Keeping worktree: {worktree_path}")
     
     def cmd_list(self, args):
         """List worktrees"""
