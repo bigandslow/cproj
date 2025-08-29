@@ -793,8 +793,8 @@ class CprojCLI:
         if github_default_reviewers:
             config['github_reviewers'] = [r.strip() for r in github_default_reviewers.split(',')]
         
-        draft_prs = input("Create draft PRs by default? [Y/n]: ").strip().lower()
-        config['github_draft_default'] = draft_prs not in ['n', 'no']
+        draft_prs = input("Create draft PRs by default? [y/N]: ").strip().lower()
+        config['github_draft_default'] = draft_prs in ['y', 'yes']
         
         print()
         
@@ -875,8 +875,8 @@ class CprojCLI:
         review_sub = review_parser.add_subparsers(dest='review_command')
         
         open_parser = review_sub.add_parser('open', help='Open review')
-        open_parser.add_argument('--draft', action='store_true', help='Create draft PR')
-        open_parser.add_argument('--ready', action='store_true', help='Create ready PR')
+        open_parser.add_argument('--draft', action='store_true', help='Create draft PR (default is ready for review)')
+        open_parser.add_argument('--ready', action='store_true', help='[Deprecated] Create ready PR (now default)')
         open_parser.add_argument('--assign', help='Assignees (comma-separated)')
         open_parser.add_argument('--no-push', action='store_true', help='Don\'t push branch')
         
@@ -1287,7 +1287,8 @@ class CprojCLI:
             if agent_json.data['links']['linear']:
                 body += f"\n\nLinear: {agent_json.data['links']['linear']}"
             
-            draft = not args.ready if args.ready else True
+            # Default to ready (not draft), unless explicitly set to draft
+            draft = args.draft if hasattr(args, 'draft') else False
             assignees = args.assign.split(',') if args.assign else None
             
             pr_url = GitHubIntegration.create_pr(title, body, draft, assignees)
@@ -1481,8 +1482,84 @@ class CprojCLI:
                     break
                     
                 elif choice == '3':
-                    # Interactive mode - will be handled later
-                    break
+                    # Interactive selection mode
+                    current_worktree = Path.cwd()
+                    selected_for_removal = []
+                    
+                    print("📋 Select worktrees to remove:")
+                    print("   [y/n] for each worktree, Enter to confirm selection")
+                    print()
+                    
+                    for i, wt in enumerate(active_worktrees):
+                        path = Path(wt['path'])
+                        branch = wt.get('branch', 'N/A')
+                        
+                        # Get age info
+                        age_info = ""
+                        agent_json_path = path / '.agent.json'
+                        if agent_json_path.exists():
+                            try:
+                                agent_json = AgentJson(path)
+                                created_at = datetime.fromisoformat(
+                                    agent_json.data['workspace']['created_at'].replace('Z', '+00:00')
+                                )
+                                age_days = (datetime.now(timezone.utc) - created_at).days
+                                age_info = f" ({age_days} days old)"
+                            except:
+                                pass
+                        
+                        # Check if this is the current worktree
+                        is_current = False
+                        try:
+                            is_current = current_worktree.resolve() == path.resolve()
+                        except:
+                            pass
+                        
+                        current_indicator = " [CURRENT]" if is_current else ""
+                        default_answer = "n" if is_current else "y"
+                        
+                        while True:
+                            answer = input(f"Remove {path.name} [{branch}]{age_info}{current_indicator}? [y/N]: ").strip().lower()
+                            if not answer:
+                                answer = "n"  # Default to not removing
+                            
+                            if answer in ['y', 'yes']:
+                                if is_current:
+                                    print("⚠️  Cannot remove current worktree. Skipping.")
+                                else:
+                                    selected_for_removal.append(wt)
+                                break
+                            elif answer in ['n', 'no']:
+                                break
+                            else:
+                                print("❌ Please enter y or n")
+                                continue
+                    
+                    if not selected_for_removal:
+                        print("No worktrees selected for removal.")
+                        return
+                    
+                    print(f"\n📋 Selected {len(selected_for_removal)} worktree(s) for removal:")
+                    for wt in selected_for_removal:
+                        path = Path(wt['path'])
+                        branch = wt.get('branch', 'N/A')
+                        print(f"  - {path.name} [{branch}]")
+                    
+                    confirm = input(f"\nConfirm removal of {len(selected_for_removal)} worktree(s)? [y/N]: ").strip().lower()
+                    if confirm not in ['y', 'yes']:
+                        print("Cleanup cancelled.")
+                        return
+                    
+                    # Remove selected worktrees
+                    for wt in selected_for_removal:
+                        path = Path(wt['path'])
+                        try:
+                            git.remove_worktree(path, force=True)
+                            print(f"✅ Removed: {path}")
+                        except Exception as e:
+                            print(f"❌ Failed to remove {path}: {e}")
+                    
+                    return
                     
                 elif choice == '4':
                     print("Cleanup cancelled.")
