@@ -798,7 +798,7 @@ class CprojCLI:
         wt_sub = wt_create.add_subparsers(dest='worktree_command')
         
         create_parser = wt_sub.add_parser('create', help='Create worktree')
-        create_parser.add_argument('--branch', required=True, help='Branch name')
+        create_parser.add_argument('--branch', help='Branch name')
         create_parser.add_argument('--linear', help='Linear issue URL')
         create_parser.add_argument('--python-install', action='store_true', help='Auto-install Python deps')
         create_parser.add_argument('--node-install', action='store_true', help='Auto-install Node deps')
@@ -1017,12 +1017,137 @@ class CprojCLI:
             print(f"⚠️  Missing tools: {', '.join(missing_tools)}")
             print("   Install them for full functionality")
     
+    def _is_interactive(self) -> bool:
+        """Check if we're running in an interactive terminal"""
+        import sys
+        return sys.stdin.isatty() and sys.stdout.isatty()
+    
+    def _generate_branch_suggestions(self) -> List[str]:
+        """Generate reasonable branch name suggestions"""
+        from datetime import datetime
+        
+        # Get configured branch scheme
+        branch_scheme = self.config.get('branch_scheme', 'feature/{ticket}-{slug}')
+        
+        suggestions = []
+        timestamp = datetime.now().strftime('%m%d')
+        
+        # Parse the scheme to generate suggestions
+        if '{ticket}' in branch_scheme and '{slug}' in branch_scheme:
+            suggestions.extend([
+                branch_scheme.replace('{ticket}', 'TICKET-123').replace('{slug}', 'description'),
+                branch_scheme.replace('{ticket}', 'ABC-456').replace('{slug}', 'feature-name'),
+            ])
+        elif '{ticket}' in branch_scheme:
+            suggestions.extend([
+                branch_scheme.replace('{ticket}', 'TICKET-123'),
+                branch_scheme.replace('{ticket}', 'ABC-456'),
+            ])
+        elif '{slug}' in branch_scheme:
+            suggestions.extend([
+                branch_scheme.replace('{slug}', 'new-feature'),
+                branch_scheme.replace('{slug}', 'bug-fix'),
+            ])
+        else:
+            # Generic suggestions based on common patterns
+            if branch_scheme.startswith('feature/'):
+                suggestions.extend([
+                    f'feature/new-feature-{timestamp}',
+                    f'feature/improvement-{timestamp}',
+                ])
+            else:
+                suggestions.extend([
+                    f'feature/new-feature-{timestamp}',
+                    f'fix/bug-fix-{timestamp}',
+                    f'dev/experiment-{timestamp}',
+                ])
+        
+        return suggestions[:3]  # Limit to 3 suggestions
+    
     def cmd_worktree_create(self, args):
         """Create worktree"""
         repo_path = Path(args.repo or self.config.get('repo_path', '.'))
         base_branch = args.base or self.config.get('base_branch', 'main')
         temp_root = Path(args.temp_root or self.config.get('temp_root', tempfile.gettempdir()) or tempfile.gettempdir())
         project_name = self.config.get('project_name', repo_path.name)
+        
+        # Interactive prompt for branch name if not provided and in interactive mode
+        if not args.branch:
+            if not self._is_interactive():
+                raise CprojError("Branch name is required. Use --branch BRANCH_NAME or run in interactive mode.")
+            
+            print("🌿 Create New Branch")
+            print("-" * 50)
+            
+            suggestions = self._generate_branch_suggestions()
+            print("Branch name suggestions:")
+            for i, suggestion in enumerate(suggestions, 1):
+                print(f"  {i}. {suggestion}")
+            print()
+            
+            while True:
+                branch_input = input("Enter branch name (or number for suggestion): ").strip()
+                
+                if not branch_input:
+                    print("❌ Branch name is required")
+                    continue
+                
+                # Check if user entered a number for suggestion
+                if branch_input.isdigit():
+                    try:
+                        suggestion_idx = int(branch_input) - 1
+                        if 0 <= suggestion_idx < len(suggestions):
+                            args.branch = suggestions[suggestion_idx]
+                            break
+                        else:
+                            print(f"❌ Please enter a number between 1 and {len(suggestions)}")
+                            continue
+                    except (ValueError, IndexError):
+                        print("❌ Invalid selection")
+                        continue
+                else:
+                    args.branch = branch_input
+                    break
+            
+            print(f"✅ Using branch: {args.branch}")
+            print()
+        
+        # Interactive prompt for Linear URL if not provided and Linear is configured  
+        if not args.linear and self.config.get('linear_org') and self._is_interactive():
+            print("🔗 Linear Integration (optional)")
+            print("-" * 50)
+            print(f"Linear organization: {self.config.get('linear_org')}")
+            linear_input = input("Linear issue URL (optional, press Enter to skip): ").strip()
+            if linear_input:
+                args.linear = linear_input
+                print(f"✅ Using Linear URL: {args.linear}")
+            print()
+        
+        # Interactive prompt for environment setup options if not specified and in interactive mode
+        if not any([args.python_install, args.node_install, args.java_build]) and self._is_interactive():
+            print("⚙️  Environment Setup (optional)")
+            print("-" * 50)
+            
+            # Check what environments are available in the repo
+            repo_path_obj = Path(repo_path)
+            has_python = any((repo_path_obj / f).exists() for f in ['pyproject.toml', 'requirements.txt', 'setup.py'])
+            has_node = (repo_path_obj / 'package.json').exists()
+            has_java = any((repo_path_obj / f).exists() for f in ['pom.xml', 'build.gradle', 'build.gradle.kts'])
+            
+            if has_python:
+                python_install = input("Auto-install Python dependencies? [y/N]: ").strip().lower()
+                args.python_install = python_install in ['y', 'yes']
+            
+            if has_node:
+                node_install = input("Auto-install Node dependencies? [y/N]: ").strip().lower()
+                args.node_install = node_install in ['y', 'yes']
+            
+            if has_java:
+                java_build = input("Auto-build Java project? [y/N]: ").strip().lower()
+                args.java_build = java_build in ['y', 'yes']
+            
+            if has_python or has_node or has_java:
+                print()
         
         git = GitWorktree(repo_path)
         
@@ -1214,6 +1339,76 @@ class CprojCLI:
         
         git = GitWorktree(repo_path)
         worktrees = git.list_worktrees()
+        
+        # Interactive prompt for cleanup criteria if not specified and in interactive mode
+        if not any([args.older_than, args.merged_only]) and self._is_interactive():
+            print("🧹 Cleanup Worktrees")
+            print("-" * 50)
+            
+            # Show current worktrees with ages
+            active_worktrees = [wt for wt in worktrees if Path(wt['path']) != repo_path]
+            if not active_worktrees:
+                print("No worktrees to clean up.")
+                return
+            
+            print(f"Found {len(active_worktrees)} active worktree(s):")
+            for wt in active_worktrees:
+                path = Path(wt['path'])
+                branch = wt.get('branch', 'N/A')
+                
+                # Try to get age
+                age_info = ""
+                agent_json_path = path / '.agent.json'
+                if agent_json_path.exists():
+                    try:
+                        agent_json = AgentJson(path)
+                        created_at = datetime.fromisoformat(
+                            agent_json.data['workspace']['created_at'].replace('Z', '+00:00')
+                        )
+                        age_days = (datetime.now(timezone.utc) - created_at).days
+                        age_info = f" ({age_days} days old)"
+                    except:
+                        pass
+                
+                print(f"  - {path.name} [{branch}]{age_info}")
+            
+            print()
+            print("Cleanup options:")
+            print("  1. Remove worktrees older than X days")
+            print("  2. Remove merged worktrees only") 
+            print("  3. Interactive selection")
+            print("  4. Cancel")
+            
+            while True:
+                choice = input("Select cleanup method [1-4]: ").strip()
+                
+                if choice == '1':
+                    default_days = self.config.get('cleanup_days', 14)
+                    days_input = input(f"Remove worktrees older than how many days? [{default_days}]: ").strip()
+                    try:
+                        args.older_than = int(days_input) if days_input else default_days
+                        break
+                    except ValueError:
+                        print("❌ Please enter a valid number")
+                        continue
+                        
+                elif choice == '2':
+                    args.merged_only = True
+                    break
+                    
+                elif choice == '3':
+                    # Interactive mode - will be handled later
+                    break
+                    
+                elif choice == '4':
+                    print("Cleanup cancelled.")
+                    return
+                    
+                else:
+                    print("❌ Please enter 1, 2, 3, or 4")
+                    continue
+            
+            print()
         
         to_remove = []
         for wt in worktrees:
