@@ -6,6 +6,9 @@
 
 set -e
 
+# Get the directory where this script is located
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -53,7 +56,7 @@ source "$INSTALL_DIR/venv/bin/activate"
 
 # Copy cproj.py to installation directory
 echo -e "${BLUE}Installing cproj...${NC}"
-cp cproj.py "$INSTALL_DIR/"
+cp "$SCRIPT_DIR/cproj.py" "$INSTALL_DIR/"
 
 # Create wrapper script
 echo -e "${BLUE}Creating executable wrapper...${NC}"
