@@ -421,7 +421,7 @@ class EnvironmentSetup:
     def __init__(self, worktree_path: Path):
         self.worktree_path = worktree_path
     
-    def setup_python(self, auto_install: bool = False) -> Dict:
+    def setup_python(self, auto_install: bool = False, shared_venv: bool = False, repo_path: Path = None) -> Dict:
         """Setup Python environment with uv or venv"""
         env_data = {
             "manager": "none",
@@ -439,6 +439,23 @@ class EnvironmentSetup:
         
         if not (pyproject_exists or requirements_exists):
             return env_data
+        
+        # Handle shared venv option
+        if shared_venv and repo_path:
+            main_venv = repo_path / '.venv'
+            worktree_venv = self.worktree_path / '.venv'
+            
+            if main_venv.exists():
+                try:
+                    # Create symlink to main repo's venv
+                    if worktree_venv.exists():
+                        worktree_venv.unlink()
+                    worktree_venv.symlink_to(main_venv, target_is_directory=True)
+                    env_data['manager'] = 'shared'
+                    env_data['active'] = True
+                    return env_data
+                except (OSError, subprocess.CalledProcessError):
+                    print("Warning: Failed to create shared venv, falling back to new venv")
         
         # Try uv first
         if shutil.which('uv'):
@@ -537,6 +554,21 @@ class EnvironmentSetup:
                     pass
         
         return env_data
+    
+    def copy_env_files(self, repo_path: Path):
+        """Copy .env files from main repo to worktree"""
+        env_files = ['.env', '.env.local', '.env.development', '.env.test', '.env.production']
+        
+        for env_file in env_files:
+            source_file = repo_path / env_file
+            dest_file = self.worktree_path / env_file
+            
+            if source_file.exists() and not dest_file.exists():
+                try:
+                    shutil.copy2(source_file, dest_file)
+                    print(f"Copied {env_file} to worktree")
+                except (OSError, IOError) as e:
+                    print(f"Warning: Failed to copy {env_file}: {e}")
 
 
 class TerminalAutomation:
@@ -866,6 +898,8 @@ class CprojCLI:
         create_parser.add_argument('--branch', help='Branch name')
         create_parser.add_argument('--linear', help='Linear issue URL')
         create_parser.add_argument('--python-install', action='store_true', help='Auto-install Python deps')
+        create_parser.add_argument('--shared-venv', action='store_true', help='Link to main repo venv instead of creating new one')
+        create_parser.add_argument('--copy-env', action='store_true', help='Copy .env files from main repo')
         create_parser.add_argument('--node-install', action='store_true', help='Auto-install Node deps')
         create_parser.add_argument('--java-build', action='store_true', help='Auto-build Java')
         create_parser.add_argument('--open-editor', action='store_true', help='Open editor after creating worktree')
@@ -1203,6 +1237,10 @@ class CprojCLI:
             if has_python:
                 python_install = input("Auto-install Python dependencies? [y/N]: ").strip().lower()
                 args.python_install = python_install in ['y', 'yes']
+                
+                if not args.python_install:
+                    shared_venv = input("Use shared venv from main repo? [y/N]: ").strip().lower()
+                    args.shared_venv = shared_venv in ['y', 'yes']
             
             if has_node:
                 node_install = input("Auto-install Node dependencies? [y/N]: ").strip().lower()
@@ -1211,6 +1249,10 @@ class CprojCLI:
             if has_java:
                 java_build = input("Auto-build Java project? [y/N]: ").strip().lower()
                 args.java_build = java_build in ['y', 'yes']
+            
+            # Ask about .env files
+            copy_env = input("Copy .env files from main repo? [y/N]: ").strip().lower()
+            args.copy_env = copy_env in ['y', 'yes']
             
             if has_python or has_node or has_java:
                 print()
@@ -1231,9 +1273,13 @@ class CprojCLI:
         
         # Setup environment
         env_setup = EnvironmentSetup(worktree_path)
-        python_env = env_setup.setup_python(args.python_install)
+        python_env = env_setup.setup_python(args.python_install, args.shared_venv, repo_path)
         node_env = env_setup.setup_node(args.node_install)
         java_env = env_setup.setup_java(args.java_build)
+        
+        # Copy .env files if requested
+        if args.copy_env:
+            env_setup.copy_env_files(repo_path)
         
         # Create .agent.json
         agent_json = AgentJson(worktree_path)
