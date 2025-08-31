@@ -868,7 +868,8 @@ class CprojCLI:
         create_parser.add_argument('--python-install', action='store_true', help='Auto-install Python deps')
         create_parser.add_argument('--node-install', action='store_true', help='Auto-install Node deps')
         create_parser.add_argument('--java-build', action='store_true', help='Auto-build Java')
-        create_parser.add_argument('--open', action='store_true', help='Open terminal and editor after creating worktree')
+        create_parser.add_argument('--open-editor', action='store_true', help='Open editor after creating worktree')
+        create_parser.add_argument('--no-terminal', action='store_true', help='Do not open terminal after creating worktree')
         
         # review command
         review_parser = subparsers.add_parser('review', help='Review commands')
@@ -1250,14 +1251,14 @@ class CprojCLI:
         print(f"Created worktree: {worktree_path}")
         print(f"Branch: {args.branch}")
         
-        # Open terminal and editor if requested
-        if args.open:
-            terminal_app = args.terminal or self.config.get('terminal', 'Terminal')
+        # Open terminal by default (unless --no-terminal is specified)
+        terminal_app = args.terminal or self.config.get('terminal', 'Terminal')
+        if not args.no_terminal and terminal_app != 'none':
+            TerminalAutomation.open_terminal(worktree_path, f"{project_name}:{args.branch}", terminal_app)
+        
+        # Open editor only if --open-editor is specified
+        if args.open_editor:
             editor = args.editor or self.config.get('editor', 'code')
-            
-            if terminal_app != 'none':
-                TerminalAutomation.open_terminal(worktree_path, f"{project_name}:{args.branch}", terminal_app)
-            
             if editor:
                 TerminalAutomation.open_editor(worktree_path, editor)
     
