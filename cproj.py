@@ -556,19 +556,39 @@ class EnvironmentSetup:
         return env_data
     
     def copy_env_files(self, repo_path: Path):
-        """Copy .env files from main repo to worktree"""
-        env_files = ['.env', '.env.local', '.env.development', '.env.test', '.env.production']
+        """Copy .env files from main repo to worktree, searching subdirectories"""
+        import glob
         
-        for env_file in env_files:
-            source_file = repo_path / env_file
-            dest_file = self.worktree_path / env_file
+        # Find all .env* files in the repo (including subdirectories)
+        env_patterns = ['**/.env', '**/.env.*']
+        found_files = []
+        
+        for pattern in env_patterns:
+            found_files.extend(repo_path.glob(pattern))
+        
+        if not found_files:
+            print("No .env files found in main repo")
+            return
+        
+        # Copy files, preserving directory structure
+        for source_file in found_files:
+            # Skip hidden directories and common build/cache dirs
+            if any(part.startswith('.') and part not in ['.env', '.env.local', '.env.development', '.env.test', '.env.production', '.env.example'] 
+                   for part in source_file.relative_to(repo_path).parts[:-1]):
+                continue
             
-            if source_file.exists() and not dest_file.exists():
+            # Calculate relative path from repo root
+            rel_path = source_file.relative_to(repo_path)
+            dest_file = self.worktree_path / rel_path
+            
+            if not dest_file.exists():
                 try:
+                    # Create parent directories if needed
+                    dest_file.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(source_file, dest_file)
-                    print(f"Copied {env_file} to worktree")
+                    print(f"Copied {rel_path} to worktree")
                 except (OSError, IOError) as e:
-                    print(f"Warning: Failed to copy {env_file}: {e}")
+                    print(f"Warning: Failed to copy {rel_path}: {e}")
 
 
 class TerminalAutomation:
