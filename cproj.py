@@ -430,9 +430,17 @@ class EnvironmentSetup:
             "requirements": False
         }
         
-        # Check for project files
-        pyproject_exists = (self.worktree_path / 'pyproject.toml').exists()
-        requirements_exists = (self.worktree_path / 'requirements.txt').exists()
+        # Check for project files in root and common subdirectories
+        pyproject_paths = list(self.worktree_path.glob('**/pyproject.toml'))
+        requirements_paths = list(self.worktree_path.glob('**/requirements.txt'))
+        
+        # Filter out common non-project directories
+        exclude_dirs = {'.venv', 'venv', 'node_modules', '.git', '__pycache__', 'dist', 'build'}
+        pyproject_paths = [p for p in pyproject_paths if not any(ex in p.parts for ex in exclude_dirs)]
+        requirements_paths = [p for p in requirements_paths if not any(ex in p.parts for ex in exclude_dirs)]
+        
+        pyproject_exists = len(pyproject_paths) > 0
+        requirements_exists = len(requirements_paths) > 0
         
         env_data['pyproject'] = pyproject_exists
         env_data['requirements'] = requirements_exists
@@ -442,20 +450,45 @@ class EnvironmentSetup:
         
         # Handle shared venv option
         if shared_venv and repo_path:
-            main_venv = repo_path / '.venv'
-            worktree_venv = self.worktree_path / '.venv'
+            # Search for .venv in repo root and common subdirectories
+            venv_search_paths = [
+                repo_path / '.venv',
+                repo_path / 'bankrec' / '.venv',  # Common pattern in your repos
+                *list(repo_path.glob('*/.venv'))  # Any direct subdirectory
+            ]
             
-            if main_venv.exists():
+            main_venv = None
+            for venv_path in venv_search_paths:
+                if venv_path.exists() and venv_path.is_dir():
+                    main_venv = venv_path
+                    break
+            
+            if main_venv:
+                # Determine where to create the symlink in worktree
+                # If venv is in a subdirectory, preserve that structure
+                if main_venv.parent != repo_path:
+                    subdir = main_venv.parent.name
+                    worktree_venv = self.worktree_path / subdir / '.venv'
+                    worktree_venv.parent.mkdir(parents=True, exist_ok=True)
+                else:
+                    worktree_venv = self.worktree_path / '.venv'
+                
                 try:
                     # Create symlink to main repo's venv
                     if worktree_venv.exists():
-                        worktree_venv.unlink()
+                        if worktree_venv.is_symlink():
+                            worktree_venv.unlink()
+                        else:
+                            shutil.rmtree(worktree_venv)
                     worktree_venv.symlink_to(main_venv, target_is_directory=True)
                     env_data['manager'] = 'shared'
                     env_data['active'] = True
+                    print(f"Created shared venv link: {worktree_venv} -> {main_venv}")
                     return env_data
-                except (OSError, subprocess.CalledProcessError):
-                    print("Warning: Failed to create shared venv, falling back to new venv")
+                except (OSError, subprocess.CalledProcessError) as e:
+                    print(f"Warning: Failed to create shared venv: {e}")
+            else:
+                print("No .venv found in main repo to share")
         
         # Try uv first
         if shutil.which('uv'):
@@ -1334,7 +1367,7 @@ class CprojCLI:
         agent_json_path = worktree_path / '.agent.json'
         
         if not agent_json_path.exists():
-            raise CprojError("Not in a cproj worktree")
+            raise CprojError("Not in a cproj worktree (no .agent.json found). Run from worktree root directory.")
         
         agent_json = AgentJson(worktree_path)
         repo_path = Path(agent_json.data['project']['repo_path'])
@@ -1372,7 +1405,7 @@ class CprojCLI:
         agent_json_path = worktree_path / '.agent.json'
         
         if not agent_json_path.exists():
-            raise CprojError("Not in a cproj worktree")
+            raise CprojError("Not in a cproj worktree (no .agent.json found). Run from worktree root directory.")
         
         agent_json = AgentJson(worktree_path)
         repo_path = Path(agent_json.data['project']['repo_path'])
@@ -1462,7 +1495,7 @@ class CprojCLI:
         
         agent_json_path = worktree_path / '.agent.json'
         if not agent_json_path.exists():
-            raise CprojError("Not in a cproj worktree")
+            raise CprojError("Not in a cproj worktree (no .agent.json found). Run from worktree root directory.")
         
         agent_json = AgentJson(worktree_path)
         
@@ -1705,13 +1738,24 @@ class CprojCLI:
     def cmd_open(self, args):
         """Open workspace"""
         if args.path:
+            # Check if user might be trying to use 'open review' instead of 'review open'
+            if args.path == 'review':
+                raise CprojError("Did you mean 'cproj review open'? The correct syntax is: cproj review open")
             worktree_path = Path(args.path)
+            if not worktree_path.exists():
+                raise CprojError(f"Path does not exist: {args.path}")
         else:
             worktree_path = Path.cwd()
         
         agent_json_path = worktree_path / '.agent.json'
         if not agent_json_path.exists():
-            raise CprojError("Not in a cproj worktree")
+            # Check if we're in a subdirectory of a worktree
+            parent = worktree_path.parent
+            while parent != parent.parent:
+                if (parent / '.agent.json').exists():
+                    raise CprojError(f"Found .agent.json in parent directory: {parent}\nRun command from worktree root or specify path with 'cproj open {parent}'")
+                parent = parent.parent
+            raise CprojError("Not in a cproj worktree (no .agent.json found)")
         
         agent_json = AgentJson(worktree_path)
         project_name = agent_json.data['project']['name']
