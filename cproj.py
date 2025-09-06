@@ -1353,7 +1353,10 @@ class CprojCLI:
         # Open terminal by default (unless --no-terminal is specified)
         terminal_app = args.terminal or self.config.get('terminal', 'Terminal')
         if not args.no_terminal and terminal_app != 'none':
-            TerminalAutomation.open_terminal(worktree_path, f"{project_name}:{args.branch}", terminal_app)
+            # Strip branch prefix (everything before /) for cleaner window title
+            import re
+            branch_display = re.sub(r'^\S+/', '', args.branch)
+            TerminalAutomation.open_terminal(worktree_path, branch_display, terminal_app)
         
         # Open editor only if --open-editor is specified
         if args.open_editor:
@@ -1766,7 +1769,10 @@ class CprojCLI:
         
         # Open terminal
         if terminal_app != 'none':
-            TerminalAutomation.open_terminal(worktree_path, f"{project_name}:{branch}", terminal_app)
+            # Strip branch prefix (everything before /) for cleaner window title
+            import re
+            branch_display = re.sub(r'^\S+/', '', branch)
+            TerminalAutomation.open_terminal(worktree_path, branch_display, terminal_app)
         
         # Open editor
         if editor:
