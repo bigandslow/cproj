@@ -1430,8 +1430,11 @@ class CprojCLI:
         print(f"\n🎉 Branch {branch} ready for review")
     
     def cmd_review_agents(self, args):
-        """Run automated review agents"""
-        from claude_review_agents import setup_review, ClaudeReviewOrchestrator, ProjectContext
+        """Run automated review agents with security validation"""
+        try:
+            from claude_review_agents import setup_review, ClaudeReviewOrchestrator, ProjectContext
+        except ImportError as e:
+            raise CprojError(f"Review agents module not available: {e}")
         
         worktree_path = Path.cwd()
         agent_json_path = worktree_path / '.agent.json'
@@ -1439,55 +1442,69 @@ class CprojCLI:
         if not agent_json_path.exists():
             raise CprojError("Not in a cproj worktree (no .agent.json found). Run from worktree root directory.")
         
-        # Load agent data for context
-        agent_json = AgentJson(worktree_path)
+        try:
+            # Load agent data for context
+            agent_json = AgentJson(worktree_path)
+            
+            # Create project context with safe values
+            context = ProjectContext()
+            if 'links' in agent_json.data and agent_json.data['links'].get('linear'):
+                # Sanitize Linear URL
+                linear_url = str(agent_json.data['links']['linear'])[:200]  # Limit length
+                context.ticket = f"Linear: {linear_url}"
+            
+            if 'workspace' in agent_json.data and agent_json.data['workspace'].get('branch'):
+                # Sanitize branch name
+                branch = str(agent_json.data['workspace']['branch'])[:100]  # Limit length
+                safe_branch = ''.join(c for c in branch if c.isalnum() or c in '-_.')
+                context.pr_title = safe_branch
+            
+            if args.setup:
+                # Just setup configuration
+                result = setup_review(worktree_path, context)
+                print(f"✅ Review configuration saved: {result['config_path']}")
+                print(f"🤖 Configured {result['agents']} agents")
+                print(f"📊 Diff size: {result['diff_size']} bytes")
+                print("\n🎯 To run the review:")
+                print("1. Open the configuration file in Claude")
+                print("2. Use the Task tool to run each agent")
+                print("3. Aggregate results")
+                return
+            
+            # Setup and run review with error handling
+            orchestrator = ClaudeReviewOrchestrator(worktree_path, context)
+            config_path = orchestrator.save_review_config()
+            
+            if args.json:
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                    print(json.dumps(config, indent=2))
+            else:
+                print("📋 Review agents configured!")
+                print(f"Configuration: {config_path}")
+                print("\n" + "="*60)
+                print("READY FOR CLAUDE REVIEW")
+                print("="*60)
+                print("\nNext steps:")
+                print("1. Copy the following prompt to Claude:")
+                print("\n" + "-"*40)
+                print("Please run a comprehensive PR review using the Task tool.")
+                print("The review configuration is in .cproj_review.json")
+                print("\nRun these three agents in sequence:")
+                print("1. Senior Developer Code Review (general-purpose agent)")
+                print("2. QA Engineer Review (general-purpose agent)")  
+                print("3. Security Review (general-purpose agent)")
+                print("\nFor each agent, use the prompt from the configuration file.")
+                print("Parse the JSON responses and provide a consolidated report.")
+                print("-"*40)
+                print(f"\n2. The configuration file is: {config_path}")
+                print("3. Each agent has a specific prompt and JSON output contract")
+                print("4. Aggregate all findings and determine if PR should be blocked")
         
-        # Create project context
-        context = ProjectContext()
-        context.ticket = agent_json.data['links'].get('linear', '')
-        context.pr_title = agent_json.data['workspace']['branch']
-        
-        if args.setup:
-            # Just setup configuration
-            result = setup_review(worktree_path, context)
-            print(f"Review configuration saved: {result['config_path']}")
-            print(f"Configured {result['agents']} agents")
-            print(f"Diff size: {result['diff_size']} bytes")
-            print("\nTo run the review:")
-            print("1. Open the configuration file in Claude")
-            print("2. Use the Task tool to run each agent")
-            print("3. Aggregate results")
-            return
-        
-        # Setup and run review
-        orchestrator = ClaudeReviewOrchestrator(worktree_path, context)
-        config_path = orchestrator.save_review_config()
-        
-        if args.json:
-            with open(config_path) as f:
-                config = json.load(f)
-                print(json.dumps(config, indent=2))
-        else:
-            print("📋 Review agents configured!")
-            print(f"Configuration: {config_path}")
-            print("\n" + "="*60)
-            print("READY FOR CLAUDE REVIEW")
-            print("="*60)
-            print("\nNext steps:")
-            print("1. Copy the following prompt to Claude:")
-            print("\n" + "-"*40)
-            print("Please run a comprehensive PR review using the Task tool.")
-            print("The review configuration is in .cproj_review.json")
-            print("\nRun these three agents in sequence:")
-            print("1. Senior Developer Code Review (general-purpose agent)")
-            print("2. QA Engineer Review (general-purpose agent)")  
-            print("3. Security Review (general-purpose agent)")
-            print("\nFor each agent, use the prompt from the configuration file.")
-            print("Parse the JSON responses and provide a consolidated report.")
-            print("-"*40)
-            print(f"\n2. The configuration file is: {config_path}")
-            print("3. Each agent has a specific prompt and JSON output contract")
-            print("4. Aggregate all findings and determine if PR should be blocked")
+        except ValueError as e:
+            raise CprojError(f"Security validation failed: {e}")
+        except Exception as e:
+            raise CprojError(f"Review setup failed: {e}")
     
     def cmd_merge(self, args):
         """Merge and cleanup"""
