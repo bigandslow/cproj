@@ -967,6 +967,11 @@ class CprojCLI:
         open_parser.add_argument('--ready', action='store_true', help='[Deprecated] Create ready PR (now default)')
         open_parser.add_argument('--assign', help='Assignees (comma-separated)')
         open_parser.add_argument('--no-push', action='store_true', help='Don\'t push branch')
+        open_parser.add_argument('--no-agents', action='store_true', help='Skip automated review agents')
+        
+        agents_parser = review_sub.add_parser('agents', help='Run automated review agents')
+        agents_parser.add_argument('--setup', action='store_true', help='Setup review configuration only')
+        agents_parser.add_argument('--json', action='store_true', help='Output as JSON')
         
         # merge command
         merge_parser = subparsers.add_parser('merge', help='Merge and cleanup')
@@ -1017,6 +1022,8 @@ class CprojCLI:
             elif parsed_args.command == 'review':
                 if parsed_args.review_command == 'open':
                     self.cmd_review_open(parsed_args)
+                elif parsed_args.review_command == 'agents':
+                    self.cmd_review_agents(parsed_args)
                 else:
                     # Show review help when no subcommand given
                     parser.parse_args(['review', '--help'])
@@ -1400,7 +1407,87 @@ class CprojCLI:
                 agent_json.save()
                 print(f"Created PR: {pr_url}")
         
-        print(f"Branch {branch} ready for review")
+        # Run automated review agents unless disabled
+        if not args.no_agents:
+            print(f"\n🤖 Running automated review agents...")
+            try:
+                # Import and run agents
+                from claude_review_agents import setup_review, ProjectContext
+                
+                context = ProjectContext()
+                context.ticket = agent_json.data['links'].get('linear', '')
+                context.pr_title = branch
+                
+                result = setup_review(worktree_path, context)
+                print(f"✅ Review configuration created: {result['config_path']}")
+                print("📋 Ready for Claude review! Run:")
+                print("   cproj review agents")
+            except ImportError:
+                print("⚠️  Review agents not available (claude_review_agents.py not found)")
+            except Exception as e:
+                print(f"⚠️  Could not setup review agents: {e}")
+        
+        print(f"\n🎉 Branch {branch} ready for review")
+    
+    def cmd_review_agents(self, args):
+        """Run automated review agents"""
+        from claude_review_agents import setup_review, ClaudeReviewOrchestrator, ProjectContext
+        
+        worktree_path = Path.cwd()
+        agent_json_path = worktree_path / '.agent.json'
+        
+        if not agent_json_path.exists():
+            raise CprojError("Not in a cproj worktree (no .agent.json found). Run from worktree root directory.")
+        
+        # Load agent data for context
+        agent_json = AgentJson(worktree_path)
+        
+        # Create project context
+        context = ProjectContext()
+        context.ticket = agent_json.data['links'].get('linear', '')
+        context.pr_title = agent_json.data['workspace']['branch']
+        
+        if args.setup:
+            # Just setup configuration
+            result = setup_review(worktree_path, context)
+            print(f"Review configuration saved: {result['config_path']}")
+            print(f"Configured {result['agents']} agents")
+            print(f"Diff size: {result['diff_size']} bytes")
+            print("\nTo run the review:")
+            print("1. Open the configuration file in Claude")
+            print("2. Use the Task tool to run each agent")
+            print("3. Aggregate results")
+            return
+        
+        # Setup and run review
+        orchestrator = ClaudeReviewOrchestrator(worktree_path, context)
+        config_path = orchestrator.save_review_config()
+        
+        if args.json:
+            with open(config_path) as f:
+                config = json.load(f)
+                print(json.dumps(config, indent=2))
+        else:
+            print("📋 Review agents configured!")
+            print(f"Configuration: {config_path}")
+            print("\n" + "="*60)
+            print("READY FOR CLAUDE REVIEW")
+            print("="*60)
+            print("\nNext steps:")
+            print("1. Copy the following prompt to Claude:")
+            print("\n" + "-"*40)
+            print("Please run a comprehensive PR review using the Task tool.")
+            print("The review configuration is in .cproj_review.json")
+            print("\nRun these three agents in sequence:")
+            print("1. Senior Developer Code Review (general-purpose agent)")
+            print("2. QA Engineer Review (general-purpose agent)")  
+            print("3. Security Review (general-purpose agent)")
+            print("\nFor each agent, use the prompt from the configuration file.")
+            print("Parse the JSON responses and provide a consolidated report.")
+            print("-"*40)
+            print(f"\n2. The configuration file is: {config_path}")
+            print("3. Each agent has a specific prompt and JSON output contract")
+            print("4. Aggregate all findings and determine if PR should be blocked")
     
     def cmd_merge(self, args):
         """Merge and cleanup"""
