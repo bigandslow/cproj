@@ -16,7 +16,8 @@ from claude_review_agents import (
     ClaudeReviewOrchestrator, 
     ProjectContext,
     safe_json_loads,
-    setup_review
+    setup_review,
+    _sanitize_pii_for_logging
 )
 
 
@@ -194,6 +195,25 @@ class TestJSONSafety:
         
         assert isinstance(result, dict)
         assert result["ticket"] == "TEST-123"
+    
+    def test_safe_json_loads_validates_nested_depth(self):
+        """Test JSON nested depth validation"""
+        # Create deeply nested JSON (depth > 10)
+        nested_json = '{"level1": {"level2": {"level3": {"level4": {"level5": {"level6": {"level7": {"level8": {"level9": {"level10": {"level11": "too deep"}}}}}}}}}}}'
+        
+        with pytest.raises(ValueError, match="JSON nesting too deep"):
+            safe_json_loads(nested_json)
+    
+    def test_safe_json_loads_validates_object_count(self):
+        """Test JSON object count validation"""
+        # Create JSON with too many objects
+        large_json = '{'
+        for i in range(101):  # More than max_nested_objects=100  
+            large_json += f'"obj{i}": {{"data": "value{i}"}},'
+        large_json = large_json.rstrip(',') + '}'
+        
+        with pytest.raises(ValueError, match="JSON contains too many objects"):
+            safe_json_loads(large_json)
 
 
 class TestTemplateSecurityFixes:
@@ -302,6 +322,44 @@ class TestErrorHandling:
             finally:
                 # Restore permissions for cleanup
                 agent_file.chmod(0o644)
+
+
+class TestPIISanitization:
+    """Test PII sanitization in logging"""
+    
+    def test_sanitize_pii_emails(self):
+        """Test email sanitization"""
+        message = "User john.doe@example.com encountered error"
+        sanitized = _sanitize_pii_for_logging(message)
+        assert "john.doe@example.com" not in sanitized
+        assert "[EMAIL_REDACTED]" in sanitized
+    
+    def test_sanitize_pii_api_keys(self):
+        """Test API key sanitization"""
+        message = "Failed with token sk-1234567890abcdef1234567890abcdef12345678901234567890"
+        sanitized = _sanitize_pii_for_logging(message)
+        assert "1234567890abcdef1234567890abcdef" not in sanitized
+        assert "[TOKEN_REDACTED]" in sanitized or "[API_KEY_REDACTED]" in sanitized
+    
+    def test_sanitize_pii_file_paths(self):
+        """Test file path username sanitization"""
+        message = "Error in /Users/johndoe/project/file.py"
+        sanitized = _sanitize_pii_for_logging(message)
+        assert "johndoe" not in sanitized
+        assert "/Users/[USER_REDACTED]/project/file.py" in sanitized
+    
+    def test_sanitize_pii_ip_addresses(self):
+        """Test IP address sanitization"""
+        message = "Connection to 192.168.1.100 failed"
+        sanitized = _sanitize_pii_for_logging(message)
+        assert "192.168.1.100" not in sanitized
+        assert "[IP_REDACTED]" in sanitized
+    
+    def test_sanitize_pii_preserves_safe_content(self):
+        """Test that safe content is preserved"""
+        message = "Git command failed with exit code 1"
+        sanitized = _sanitize_pii_for_logging(message)
+        assert sanitized == message  # Should be unchanged
 
 
 if __name__ == "__main__":

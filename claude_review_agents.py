@@ -26,6 +26,7 @@ Usage:
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 from dataclasses import dataclass, asdict
@@ -33,6 +34,39 @@ from pathlib import Path
 from string import Template
 from typing import Dict, List, Optional, Tuple, Any
 from datetime import datetime
+
+
+def _sanitize_pii_for_logging(message: str) -> str:
+    """Sanitize potentially sensitive information from log messages.
+    
+    Args:
+        message: Log message that may contain PII
+        
+    Returns:
+        Sanitized message with PII redacted
+    """
+    if not isinstance(message, str):
+        message = str(message)
+    
+    # Email addresses
+    message = re.sub(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', '[EMAIL_REDACTED]', message)
+    
+    # API keys/tokens (common patterns)
+    message = re.sub(r'\b[A-Za-z0-9]{32,}\b', '[TOKEN_REDACTED]', message)
+    message = re.sub(r'\bsk-[A-Za-z0-9]{48,}\b', '[API_KEY_REDACTED]', message)
+    message = re.sub(r'\bghp_[A-Za-z0-9]{36}\b', '[GITHUB_TOKEN_REDACTED]', message)
+    
+    # URLs with potential sensitive tokens
+    message = re.sub(r'https?://[^\s]*token=[^\s&]*', 'https://[URL_WITH_TOKEN_REDACTED]', message)
+    
+    # File paths that might contain usernames
+    message = re.sub(r'/Users/[^/\s]+', '/Users/[USER_REDACTED]', message)
+    message = re.sub(r'/home/[^/\s]+', '/home/[USER_REDACTED]', message)
+    
+    # IP addresses (basic pattern)
+    message = re.sub(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b', '[IP_REDACTED]', message)
+    
+    return message
 
 
 # Professional Senior Developer Code Review Agent Prompt
@@ -293,7 +327,11 @@ class ClaudeReviewOrchestrator:
     def __init__(self, worktree_path: Path, context: Optional[ProjectContext] = None):
         self.worktree_path = self._validate_worktree_path(worktree_path)
         self.context = context or ProjectContext()
-        self.load_project_context()
+        # Load project context but don't fail if git operations fail
+        try:
+            self.load_project_context()
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
+            logging.debug(_sanitize_pii_for_logging(f"Could not fully load project context: {e}"))
     
     def _validate_worktree_path(self, path: Path) -> Path:
         """Validate worktree path is safe and contains a git repository.
@@ -308,6 +346,10 @@ class ClaudeReviewOrchestrator:
             ValueError: If path is invalid or unsafe
         """
         try:
+            # Check for path traversal patterns FIRST before resolving
+            if '..' in str(path) or str(path.resolve()).count('/') > 20:
+                raise ValueError(f"Potentially unsafe path: {path}")
+            
             resolved = path.resolve()
             
             # Check if path exists and is a directory
@@ -317,10 +359,6 @@ class ClaudeReviewOrchestrator:
             # Check if it's a git repository (has .git directory or file)
             if not (resolved / '.git').exists():
                 raise ValueError(f"Not a git repository: {resolved}")
-            
-            # Prevent path traversal - ensure we're not going outside reasonable bounds
-            if '..' in str(path) or str(resolved).count('/') > 20:
-                raise ValueError(f"Potentially unsafe path: {path}")
                 
             return resolved
         except (OSError, RuntimeError) as e:
@@ -367,7 +405,7 @@ class ClaudeReviewOrchestrator:
                     if 'links' in agent_data and agent_data['links'].get('linear'):
                         self.context.ticket = f"Linear: {agent_data['links']['linear']}"
         except (ValueError, OSError, json.JSONDecodeError) as e:
-            logging.debug(f"Could not load .agent.json: {e}")
+            logging.debug(_sanitize_pii_for_logging(f"Could not load .agent.json: {e}"))
         
         # Load from git commit messages with timeout
         try:
@@ -383,7 +421,7 @@ class ClaudeReviewOrchestrator:
                 commits = result.stdout.strip()
                 self.context.pr_desc = f"Recent commits:\n{commits}"
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
-            logging.debug(f"Could not load git commits: {e}")
+            logging.debug(_sanitize_pii_for_logging(f"Could not load git commits: {e}"))
         
         # Get branch name for PR title with timeout
         try:
@@ -402,7 +440,7 @@ class ClaudeReviewOrchestrator:
                     safe_branch = ''.join(c for c in branch if c.isalnum() or c in '-_ ')
                     self.context.pr_title = safe_branch.replace('-', ' ').replace('_', ' ').title()
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
-            logging.debug(f"Could not load git branch: {e}")
+            logging.debug(_sanitize_pii_for_logging(f"Could not load git branch: {e}"))
     
     def get_diff(self) -> str:
         """Get git diff for review with secure subprocess handling.
@@ -429,12 +467,12 @@ class ClaudeReviewOrchestrator:
                 )
                 if result.returncode == 0 and result.stdout.strip():
                     return result.stdout
-            except (subprocess.TimeoutExpired, OSError) as e:
-                logging.debug(f"Git {description} failed: {e}")
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
+                logging.debug(_sanitize_pii_for_logging(f"Git {description} failed: {e}"))
                 continue
         
         # If all strategies failed, log and return empty
-        logging.warning("No git diff available from any strategy")
+        logging.warning(_sanitize_pii_for_logging("No git diff available from any strategy"))
         return ""
     
     def _sanitize_context_value(self, value: str, max_length: int = 1000) -> str:
@@ -450,9 +488,13 @@ class ClaudeReviewOrchestrator:
         if not isinstance(value, str):
             value = str(value)
         
-        # Remove potential template injection characters
-        # Keep only alphanumeric, common punctuation, and whitespace
-        safe_value = ''.join(c for c in value if c.isalnum() or c in ' .,;:!?-_()[]{}/@#$%^&*+=~`"|<>\n\t')
+        # Remove dangerous shell and template injection characters
+        # Specifically remove: $, `, &, |, ;, (, ), {, }, <, >, \, and other shell metacharacters
+        dangerous_chars = '$`&|;()<>{}\\'
+        safe_value = ''.join(c for c in value if c not in dangerous_chars)
+        
+        # Keep only alphanumeric, safe punctuation, and whitespace
+        safe_value = ''.join(c for c in safe_value if c.isalnum() or c in ' .,;:!?-_()[]/@#%^*+=~"|\n\t')
         
         # Truncate if too long
         if len(safe_value) > max_length:
@@ -502,7 +544,7 @@ class ClaudeReviewOrchestrator:
         try:
             return template.safe_substitute(**safe_context)
         except (KeyError, ValueError) as e:
-            logging.error(f"Template substitution failed: {e}")
+            logging.error(_sanitize_pii_for_logging(f"Template substitution failed: {e}"))
             return prompt_template  # Return original template if substitution fails
     
     def create_agent_configs(self) -> List[Dict[str, Any]]:
@@ -670,11 +712,13 @@ def setup_review(worktree_path: Path, context: Optional[ProjectContext] = None) 
     }
 
 
-def safe_json_loads(data: str) -> dict:
+def safe_json_loads(data: str, max_nested_depth: int = 10, max_nested_objects: int = 100) -> dict:
     """Safely parse JSON with size and content validation.
     
     Args:
         data: JSON string to parse
+        max_nested_depth: Maximum nesting depth allowed  
+        max_nested_objects: Maximum total nested objects allowed
         
     Returns:
         Parsed JSON data
@@ -692,9 +736,53 @@ def safe_json_loads(data: str) -> dict:
         parsed = json.loads(data)
         if not isinstance(parsed, dict):
             raise ValueError("JSON input must be an object")
+        
+        # Validate nested structure to prevent DoS attacks
+        _validate_json_structure(parsed, max_nested_depth, max_nested_objects)
+        
         return parsed
     except json.JSONDecodeError as e:
         raise ValueError(f"Invalid JSON: {e}")
+
+
+def _validate_json_structure(obj: Any, max_depth: int, max_objects: int, current_depth: int = 0, object_count: int = 0) -> int:
+    """Recursively validate JSON structure depth and object count.
+    
+    Args:
+        obj: Object to validate
+        max_depth: Maximum allowed nesting depth
+        max_objects: Maximum total objects allowed
+        current_depth: Current nesting depth
+        object_count: Running count of objects processed
+        
+    Returns:
+        Updated object count
+        
+    Raises:
+        ValueError: If structure is too deep or contains too many objects
+    """
+    if current_depth > max_depth:
+        raise ValueError(f"JSON nesting too deep (max {max_depth} levels)")
+    
+    if object_count > max_objects:
+        raise ValueError(f"JSON contains too many objects (max {max_objects})")
+    
+    if isinstance(obj, dict):
+        object_count += 1
+        if object_count > max_objects:
+            raise ValueError(f"JSON contains too many objects (max {max_objects})")
+        
+        for value in obj.values():
+            object_count = _validate_json_structure(value, max_depth, max_objects, current_depth + 1, object_count)
+    
+    elif isinstance(obj, list):
+        if len(obj) > 1000:  # Limit array size
+            raise ValueError("JSON array too large (max 1000 items)")
+        
+        for item in obj:
+            object_count = _validate_json_structure(item, max_depth, max_objects, current_depth + 1, object_count)
+    
+    return object_count
 
 
 def main():
