@@ -6,6 +6,7 @@ A production-ready CLI tool for managing parallel project work using Git worktre
 
 import argparse
 import json
+import logging
 import os
 import platform
 import shutil
@@ -16,6 +17,14 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import tempfile
 import getpass
+
+# Setup logging
+logger = logging.getLogger('cproj')
+handler = logging.StreamHandler()
+formatter = logging.Formatter('%(levelname)s: %(message)s')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+logger.setLevel(logging.INFO)
 
 
 class CprojError(Exception):
@@ -988,6 +997,8 @@ class CprojCLI:
         parser.add_argument('--yes', action='store_true', help='Skip confirmations')
         parser.add_argument('--verbose', action='store_true', help='Verbose output')
         parser.add_argument('--json', action='store_true', help='JSON output')
+        parser.add_argument('--log-level', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
+                          default='INFO', help='Set logging level (default: INFO)')
         
         subparsers = parser.add_subparsers(dest='command', help='Commands')
         
@@ -1078,6 +1089,14 @@ class CprojCLI:
         """Main entry point"""
         parser = self.create_parser()
         parsed_args = parser.parse_args(args)
+        
+        # Set logging level based on command-line argument
+        log_level = getattr(logging, parsed_args.log_level)
+        logger.setLevel(log_level)
+        
+        # Also enable debug if --verbose is used
+        if parsed_args.verbose:
+            logger.setLevel(logging.DEBUG)
         
         try:
             if parsed_args.command == 'init' or parsed_args.command in ['new', 'start']:
@@ -2147,8 +2166,8 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                     days_input = input(f"Remove worktrees newer than how many days? [{default_days}]: ").strip()
                     try:
                         newer_days = int(days_input) if days_input else default_days
-                        # We'll need to add this logic - for now just set a flag
                         args.newer_than = newer_days
+                        logger.debug(f"Set args.newer_than to {args.newer_than}")
                         break
                     except ValueError:
                         print("❌ Please enter a valid number")
@@ -2178,6 +2197,8 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             
             print()
         
+        logger.debug(f"Processing cleanup with filters - older_than: {args.older_than}, newer_than: {getattr(args, 'newer_than', None)}, merged_only: {args.merged_only}")
+        
         to_remove = []
         for wt in worktrees:
             path = Path(wt['path'])
@@ -2185,6 +2206,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                 continue
             
             should_remove = False
+            logger.debug(f"Evaluating worktree: {path.name}")
             
             # Check age
             if args.older_than:
@@ -2203,6 +2225,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             
             # Check for newer than (opposite logic)
             if hasattr(args, 'newer_than') and args.newer_than:
+                logger.debug(f"Checking newer_than condition for {path.name}")
                 agent_json_path = path / '.cproj' / '.agent.json'
                 if agent_json_path.exists():
                     try:
@@ -2211,9 +2234,12 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                             agent_json.data['workspace']['created_at'].replace('Z', '+00:00')
                         )
                         age_days = (datetime.now(timezone.utc) - created_at).days
+                        logger.debug(f"{path.name} is {age_days} days old, newer_than={args.newer_than}")
                         if age_days <= args.newer_than:
                             should_remove = True
-                    except:
+                            logger.debug(f"Marking {path.name} for removal (newer than {args.newer_than} days)")
+                    except Exception as e:
+                        logger.debug(f"Error processing {path.name}: {e}")
                         pass
             
             # Check if merged (simplified check)
@@ -2221,7 +2247,10 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                 should_remove = True
             
             if should_remove:
+                logger.debug(f"Adding {path.name} to removal list")
                 to_remove.append(wt)
+            else:
+                logger.debug(f"Keeping {path.name}")
         
         if not to_remove:
             print("No worktrees to cleanup")
