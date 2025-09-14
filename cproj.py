@@ -1632,10 +1632,17 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
     
     def cmd_worktree_create(self, args):
         """Create worktree"""
-        repo_path = Path(args.repo or self.config.get('repo_path', '.'))
+        # First try to detect current git repository, then fall back to config
+        current_repo = self._find_git_root(Path.cwd())
+        repo_path = Path(args.repo or current_repo or self.config.get('repo_path', '.'))
         base_branch = args.base or self.config.get('base_branch', 'main')
         temp_root = Path(args.temp_root or self.config.get('temp_root', tempfile.gettempdir()) or tempfile.gettempdir())
-        project_name = self.config.get('project_name', repo_path.name)
+        # Use the actual repo name, not the configured one
+        project_name = repo_path.name
+        
+        logger.debug(f"Using repository: {repo_path} (project: {project_name})")
+        if current_repo and current_repo != Path(self.config.get('repo_path', '.')):
+            logger.info(f"Using current repository: {project_name} (detected from cwd)")
         
         # Interactive prompt for branch name if not provided and in interactive mode
         if not args.branch:
