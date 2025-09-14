@@ -634,12 +634,19 @@ class TerminalAutomation:
             print(f"Terminal automation not supported on {platform.system()}")
             return
         
+        # Check if setup-claude.sh exists and build the command
+        setup_script = path / 'setup-claude.sh'
+        if setup_script.exists():
+            base_command = f"cd '{path}' && source setup-claude.sh"
+        else:
+            base_command = f"cd '{path}'"
+        
         if terminal_app.lower() == 'iterm':
             script = f'''
             tell application "iTerm"
                 create window with default profile
                 tell current session of current window
-                    write text "cd '{path}'"
+                    write text "{base_command}"
                     set name to "{title}"
                 end tell
             end tell
@@ -647,7 +654,7 @@ class TerminalAutomation:
         else:  # Terminal
             script = f'''
             tell application "Terminal"
-                do script "cd '{path}'"
+                do script "{base_command}"
                 set custom title of front window to "{title}"
             end tell
             '''
@@ -1300,7 +1307,9 @@ class CprojCLI:
     
     def _setup_nvm_for_claude(self, worktree_path: Path, node_env: Dict):
         """Setup nvm and create a script to automatically use LTS for Claude CLI"""
-        if node_env.get('manager') != 'nvm':
+        # Check if nvm is available on the system (regardless of project setup)
+        nvm_path = Path.home() / '.nvm' / 'nvm.sh'
+        if not nvm_path.exists():
             return
         
         # Get default action from config
@@ -1460,6 +1469,11 @@ echo "💡 Tip: Run 'source setup-claude.sh' whenever you open a new terminal in
                             "description": "Create comprehensive Linear tickets using AI agents",
                             "agents": ["product-manager", "ux-designer", "senior-software-engineer"],
                             "requires_mcp": ["linear"]
+                        },
+                        "review-code": {
+                            "description": "Run comprehensive AI-powered code review using specialized review agents",
+                            "agents": ["senior-developer", "qa-engineer", "security-reviewer"],
+                            "requires_git": True
                         }
                     },
                     "agents": {
@@ -1475,7 +1489,7 @@ echo "💡 Tip: Run 'source setup-claude.sh' whenever you open a new terminal in
                     json.dump(workspace_config, f, indent=2)
                 
                 print(f"✅ Setup Claude workspace configuration")
-                print(f"💡 Available commands: add-ticket")
+                print(f"💡 Available commands: add-ticket, review-code")
                 print(f"💡 Available agents: product-manager, ux-designer, senior-software-engineer, code-reviewer")
                 
             except (OSError, shutil.Error) as e:
