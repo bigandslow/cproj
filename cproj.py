@@ -1048,6 +1048,7 @@ class CprojCLI:
         cleanup_parser.add_argument('--older-than', type=int, help='Days old')
         cleanup_parser.add_argument('--merged-only', action='store_true', help='Only merged branches')
         cleanup_parser.add_argument('--dry-run', action='store_true', help='Show what would be done')
+        cleanup_parser.add_argument('--force', action='store_true', help='Force removal of dirty worktrees')
         
         # open command
         open_parser = subparsers.add_parser('open', help='Open workspace')
@@ -2028,7 +2029,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         worktrees = git.list_worktrees()
         
         # Interactive prompt for cleanup criteria if not specified and in interactive mode
-        if not any([args.older_than, args.merged_only]) and self._is_interactive():
+        if not any([args.older_than, getattr(args, 'newer_than', None), args.merged_only]) and self._is_interactive():
             print("🧹 Cleanup Worktrees")
             print("-" * 50)
             
@@ -2066,6 +2067,8 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             print("  3. Remove worktrees older than X days")
             print("  4. Remove merged worktrees only") 
             print("  5. Cancel")
+            if args.force:
+                print("💪 Force mode enabled - will remove dirty worktrees")
             
             while True:
                 choice = input("Select cleanup method [1-5]: ").strip()
@@ -2123,10 +2126,15 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                         if confirm in ['y', 'yes']:
                             for wt in selected_for_removal:
                                 try:
-                                    git.remove_worktree(Path(wt['path']))
+                                    git.remove_worktree(Path(wt['path']), force=args.force)
                                     print(f"✅ Removed {Path(wt['path']).name}")
                                 except Exception as e:
-                                    print(f"❌ Failed to remove {Path(wt['path']).name}: {e}")
+                                    error_msg = str(e)
+                                    if "is dirty" in error_msg and not args.force:
+                                        print(f"❌ Failed to remove {Path(wt['path']).name}: Worktree is dirty (has uncommitted changes)")
+                                        print(f"💡 Use --force to remove dirty worktrees")
+                                    else:
+                                        print(f"❌ Failed to remove {Path(wt['path']).name}: {e}")
                         else:
                             print("Cleanup cancelled")
                     else:
@@ -2193,6 +2201,21 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                     except:
                         pass
             
+            # Check for newer than (opposite logic)
+            if hasattr(args, 'newer_than') and args.newer_than:
+                agent_json_path = path / '.cproj' / '.agent.json'
+                if agent_json_path.exists():
+                    try:
+                        agent_json = AgentJson(path)
+                        created_at = datetime.fromisoformat(
+                            agent_json.data['workspace']['created_at'].replace('Z', '+00:00')
+                        )
+                        age_days = (datetime.now(timezone.utc) - created_at).days
+                        if age_days <= args.newer_than:
+                            should_remove = True
+                    except:
+                        pass
+            
             # Check if merged (simplified check)
             if args.merged_only and 'closed_at' in agent_json_path.read_text() if agent_json_path.exists() else False:
                 should_remove = True
@@ -2210,8 +2233,16 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             
             if not args.dry_run:
                 if args.yes or input(f"Remove {path}? [y/N] ").lower() == 'y':
-                    git.remove_worktree(path, force=True)
-                    print(f"Removed: {path}")
+                    try:
+                        git.remove_worktree(path, force=args.force)
+                        print(f"Removed: {path}")
+                    except Exception as e:
+                        error_msg = str(e)
+                        if "is dirty" in error_msg and not args.force:
+                            print(f"❌ Failed to remove {path.name}: Worktree is dirty (has uncommitted changes)")
+                            print(f"💡 Use --force to remove dirty worktrees")
+                        else:
+                            print(f"❌ Failed to remove {path.name}: {e}")
     
     def cmd_open(self, args):
         """Open workspace"""
