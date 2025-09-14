@@ -270,6 +270,102 @@ class TestCprojCLI(unittest.TestCase):
         self.assertEqual(args.value, 'vim')
 
 
+class TestClaudeIntegration(unittest.TestCase):
+    """Test CLAUDE.md and nvm automation features"""
+    
+    def setUp(self):
+        self.temp_dir = Path(tempfile.mkdtemp())
+        self.repo_dir = self.temp_dir / 'test_repo'
+        self.repo_dir.mkdir()
+        
+        # Initialize git repo
+        subprocess.run(['git', 'init'], cwd=self.repo_dir, check=True, capture_output=True)
+        subprocess.run(['git', 'config', 'user.email', 'test@example.com'], 
+                      cwd=self.repo_dir, check=True, capture_output=True)
+        subprocess.run(['git', 'config', 'user.name', 'Test User'], 
+                      cwd=self.repo_dir, check=True, capture_output=True)
+    
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.temp_dir)
+    
+    def test_claude_symlink_detection(self):
+        """Test CLAUDE.md symlink detection and setup"""
+        # Create CLAUDE.md
+        claude_md = self.repo_dir / 'CLAUDE.md'
+        claude_md.write_text('# Test Claude Config')
+        
+        # Create .cursorrules symlink
+        cursorrules = self.repo_dir / '.cursorrules'
+        cursorrules.symlink_to('CLAUDE.md')
+        
+        # Create CLI instance
+        cli = CprojCLI()
+        cli.config.set('claude_symlink_default', 'yes')
+        
+        # Create a mock worktree
+        worktree_path = self.temp_dir / 'test_worktree'
+        worktree_path.mkdir()
+        
+        # Test the symlink setup method
+        cli._setup_claude_symlink(worktree_path, self.repo_dir)
+        
+        # Verify symlink was created
+        worktree_cursorrules = worktree_path / '.cursorrules'
+        self.assertTrue(worktree_cursorrules.exists())
+        self.assertTrue(worktree_cursorrules.is_symlink())
+    
+    def test_claude_symlink_no_source(self):
+        """Test behavior when CLAUDE.md doesn't exist"""
+        cli = CprojCLI()
+        worktree_path = self.temp_dir / 'test_worktree'
+        worktree_path.mkdir()
+        
+        # Should return early without creating anything
+        cli._setup_claude_symlink(worktree_path, self.repo_dir)
+        
+        worktree_cursorrules = worktree_path / '.cursorrules'
+        self.assertFalse(worktree_cursorrules.exists())
+    
+    def test_nvm_setup_script_creation(self):
+        """Test nvm setup script creation"""
+        cli = CprojCLI()
+        cli.config.set('claude_nvm_default', 'yes')
+        
+        worktree_path = self.temp_dir / 'test_worktree'
+        worktree_path.mkdir()
+        
+        # Mock node environment with nvm
+        node_env = {'manager': 'nvm'}
+        
+        # Test the nvm setup method
+        cli._setup_nvm_for_claude(worktree_path, node_env)
+        
+        # Verify setup script was created
+        setup_script = worktree_path / 'setup-claude.sh'
+        self.assertTrue(setup_script.exists())
+        
+        # Verify script content
+        content = setup_script.read_text()
+        self.assertIn('nvm use --lts', content)
+        self.assertIn('NVM_DIR', content)
+    
+    def test_nvm_setup_no_nvm(self):
+        """Test behavior when nvm is not available"""
+        cli = CprojCLI()
+        worktree_path = self.temp_dir / 'test_worktree'
+        worktree_path.mkdir()
+        
+        # Mock node environment without nvm
+        node_env = {'manager': 'none'}
+        
+        # Should return early without creating script
+        cli._setup_nvm_for_claude(worktree_path, node_env)
+        
+        setup_script = worktree_path / 'setup-claude.sh'
+        self.assertFalse(setup_script.exists())
+
+
 class TestIntegration(unittest.TestCase):
     """Integration tests"""
     

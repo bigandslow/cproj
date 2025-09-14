@@ -883,6 +883,18 @@ class CprojCLI:
         
         print()
         
+        # Claude IDE integration
+        print("🤖 Claude IDE Integration")
+        print("-" * 50)
+        
+        claude_symlink = input("Auto-create CLAUDE.md/.cursorrules symlinks in worktrees? [Y/n]: ").strip().lower()
+        config['claude_symlink_default'] = 'no' if claude_symlink in ['n', 'no'] else 'yes'
+        
+        claude_nvm = input("Auto-create nvm setup scripts for Claude CLI in worktrees? [Y/n]: ").strip().lower()
+        config['claude_nvm_default'] = 'no' if claude_nvm in ['n', 'no'] else 'yes'
+        
+        print()
+        
         # 1Password integration
         if OnePasswordIntegration.is_available():
             print("🔐 1Password Integration")
@@ -1182,6 +1194,114 @@ class CprojCLI:
         import sys
         return sys.stdin.isatty() and sys.stdout.isatty()
     
+    def _setup_claude_symlink(self, worktree_path: Path, repo_path: Path):
+        """Setup CLAUDE.md/.cursorrules symlink in new worktree"""
+        # Check if repo has CLAUDE.md
+        claude_md = repo_path / 'CLAUDE.md'
+        if not claude_md.exists():
+            return
+        
+        # Check if repo has .cursorrules symlinked to CLAUDE.md
+        cursorrules = repo_path / '.cursorrules'
+        if not cursorrules.is_symlink():
+            return
+        
+        # Verify the symlink points to CLAUDE.md
+        try:
+            if cursorrules.resolve() != claude_md.resolve():
+                return
+        except (OSError, FileNotFoundError):
+            return
+        
+        # Check if worktree already has .cursorrules
+        worktree_cursorrules = worktree_path / '.cursorrules'
+        if worktree_cursorrules.exists():
+            return
+        
+        # Get default action from config
+        default_action = self.config.get('claude_symlink_default', 'yes')
+        
+        # Prompt user if interactive
+        if self._is_interactive():
+            print(f"\n🔗 CLAUDE.md Configuration")
+            print(f"Found CLAUDE.md symlinked as .cursorrules in {repo_path.name}")
+            
+            if default_action == 'yes':
+                response = input(f"Create .cursorrules symlink in worktree? [Y/n]: ").strip().lower()
+                create_link = response in ('', 'y', 'yes')
+            else:
+                response = input(f"Create .cursorrules symlink in worktree? [y/N]: ").strip().lower()  
+                create_link = response in ('y', 'yes')
+        else:
+            # Non-interactive: use default
+            create_link = default_action == 'yes'
+        
+        if create_link:
+            try:
+                # First copy CLAUDE.md to worktree if it doesn't exist
+                worktree_claude = worktree_path / 'CLAUDE.md'
+                if not worktree_claude.exists():
+                    import shutil
+                    shutil.copy2(claude_md, worktree_claude)
+                    print(f"✅ Copied CLAUDE.md to worktree")
+                
+                # Create relative symlink to CLAUDE.md
+                worktree_cursorrules.symlink_to('CLAUDE.md')
+                print(f"✅ Created .cursorrules -> CLAUDE.md symlink")
+            except OSError as e:
+                print(f"⚠️  Failed to create .cursorrules symlink: {e}")
+    
+    def _setup_nvm_for_claude(self, worktree_path: Path, node_env: Dict):
+        """Setup nvm and create a script to automatically use LTS for Claude CLI"""
+        if node_env.get('manager') != 'nvm':
+            return
+        
+        # Get default action from config
+        default_action = self.config.get('claude_nvm_default', 'yes')
+        
+        # Check if we should set up nvm automation
+        setup_nvm = default_action == 'yes'
+        
+        if self._is_interactive():
+            print(f"\n🚀 Node.js Setup for Claude CLI")
+            print("Claude CLI requires Node.js LTS to run properly.")
+            
+            if default_action == 'yes':
+                response = input(f"Create nvm setup script for this worktree? [Y/n]: ").strip().lower()
+                setup_nvm = response in ('', 'y', 'yes')
+            else:
+                response = input(f"Create nvm setup script for this worktree? [y/N]: ").strip().lower()
+                setup_nvm = response in ('y', 'yes')
+        
+        if setup_nvm:
+            try:
+                # Create a setup script that sources nvm and uses LTS
+                setup_script = worktree_path / 'setup-claude.sh'
+                script_content = '''#!/bin/bash
+# Auto-generated script to setup Node.js for Claude CLI
+# Run: source setup-claude.sh
+
+echo "🚀 Setting up Node.js environment for Claude CLI..."
+
+# Source nvm
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \\. "$NVM_DIR/nvm.sh"
+
+# Use LTS Node
+nvm use --lts
+
+echo "✅ Node.js LTS activated. You can now run 'claude' command."
+echo "💡 Tip: Run 'source setup-claude.sh' whenever you open a new terminal in this directory"
+'''
+                setup_script.write_text(script_content)
+                setup_script.chmod(0o755)
+                
+                print(f"✅ Created setup-claude.sh script")
+                print(f"💡 Run 'source setup-claude.sh' in your terminal to activate Node.js LTS")
+                
+            except OSError as e:
+                print(f"⚠️  Failed to create nvm setup script: {e}")
+    
     def _generate_branch_suggestions(self) -> List[str]:
         """Generate reasonable branch name suggestions"""
         from datetime import datetime
@@ -1353,6 +1473,12 @@ class CprojCLI:
             agent_json.set_link('linear', args.linear)
         
         agent_json.save()
+        
+        # Handle CLAUDE.md/.cursorrules symlink
+        self._setup_claude_symlink(worktree_path, repo_path)
+        
+        # Setup nvm for Claude CLI if needed
+        self._setup_nvm_for_claude(worktree_path, node_env)
         
         print(f"Created worktree: {worktree_path}")
         print(f"Branch: {args.branch}")
