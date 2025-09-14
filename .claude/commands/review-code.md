@@ -21,7 +21,7 @@ Options:
 
 ## How It Works
 
-1. **Setup Phase**: Ensures `.cproj_review.json` configuration exists
+1. **Setup Phase**: Ensures `.cproj/.cproj_review.json` configuration exists
 2. **Change Detection**: Analyzes git diff to identify modified files
 3. **Agent Orchestration**: Runs specialized review agents in parallel:
    - **Senior Developer**: Code quality, architecture, best practices
@@ -81,8 +81,9 @@ if '--setup' in args:
     if setup_result.stderr:
         print(f"Setup warnings: {setup_result.stderr}")
 
-# Ensure .cproj_review.json exists
-config_file = Path('.cproj_review.json')
+# Ensure .cproj/.cproj_review.json exists
+Path('.cproj').mkdir(exist_ok=True)
+config_file = Path('.cproj/.cproj_review.json')
 if not config_file.exists():
     print("📋 Creating review configuration...")
     setup_result = subprocess.run(['python', 'claude_review_agents.py', '--setup'], 
@@ -120,7 +121,7 @@ print("🔍 Starting comprehensive code review...")
 print(f"📊 Review scope: {', '.join(review_scope)}")
 
 # Load review configuration
-with open('.cproj_review.json', 'r') as f:
+with open('.cproj/.cproj_review.json', 'r') as f:
     config = json.load(f)
 
 # Execute review agents using cproj review system

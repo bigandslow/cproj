@@ -17,7 +17,7 @@ Security Features:
 
 Usage:
     python claude_review_agents.py --setup
-    # Creates .cproj_review.json with agent configurations
+    # Creates .cproj/.cproj_review.json with agent configurations
     
     cproj review agents
     # Ready for Claude Task tool execution
@@ -586,7 +586,10 @@ class ClaudeReviewOrchestrator:
             "instructions": self.get_claude_instructions()
         }
         
-        config_path = self.worktree_path / '.cproj_review.json'
+        # Ensure .cproj directory exists
+        cproj_dir = self.worktree_path / '.cproj'
+        cproj_dir.mkdir(exist_ok=True)
+        config_path = cproj_dir / '.cproj_review.json'
         with open(config_path, 'w') as f:
             json.dump(config, f, indent=2)
         

@@ -1911,7 +1911,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                 print("1. Copy the following prompt to Claude:")
                 print("\n" + "-"*40)
                 print("Please run a comprehensive PR review using the Task tool.")
-                print("The review configuration is in .cproj_review.json")
+                print("The review configuration is in .cproj/.cproj_review.json")
                 print("\nRun these three agents in sequence:")
                 print("1. Senior Developer Code Review (general-purpose agent)")
                 print("2. QA Engineer Review (general-purpose agent)")  
