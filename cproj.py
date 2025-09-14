@@ -1156,116 +1156,95 @@ class CprojCLI:
         return None
     
     def cmd_init(self, args):
-        """Initialize project"""
-        # Check if we're in a different git repository than configured
-        current_git_root = self._find_git_root(Path.cwd())
-        configured_repo = self.config.get('repo_path')
-        
-        # If no arguments provided, detect current repo or run interactive config
-        if not any([args.repo, args.name, args.clone]):
-            if current_git_root and (not configured_repo or str(current_git_root) != configured_repo):
-                # We're in a different git repo, update config for this repo
-                repo_path = current_git_root
-                project_name = args.name or repo_path.name
-                base_branch = args.base or self.config.get('base_branch', 'main')
-                
-                self.config.set('repo_path', str(repo_path))
-                self.config.set('project_name', project_name)
-                self.config.set('base_branch', base_branch)
-                
-                print(f"✅ Initialized project '{project_name}' at {repo_path}")
-                print()
-                print("🎉 Ready to go! Try these commands:")
-                print(f"  cproj worktree create --branch feature/awesome-feature")
-                print(f"  cproj list")
-                print(f"  cproj config")
-                return
-            elif not self.config.get('repo_path'):
-                # No config at all, run interactive setup
-                config_data = self._prompt_for_config()
-            else:
-                # Use existing config but show current status
-                final_repo_path = Path(configured_repo)
-                print(f"✅ Using existing project '{self.config.get('project_name')}' at {final_repo_path}")
-                return
-        
-        if 'config_data' in locals():
-            # Save all configuration
-            for key, value in config_data.items():
-                self.config.set(key, value)
-            
-            # Handle repository setup
-            repo_path = Path(config_data['repo_path'])
-            
-            # Clone if URL provided
-            if config_data.get('clone_url'):
-                if not repo_path.parent.exists():
-                    repo_path.parent.mkdir(parents=True, exist_ok=True)
-                
-                print(f"Cloning {config_data['clone_url']} to {repo_path}...")
-                try:
-                    subprocess.run(['git', 'clone', config_data['clone_url'], str(repo_path)], check=True)
-                    print("Repository cloned successfully!")
-                except subprocess.CalledProcessError as e:
-                    raise CprojError(f"Failed to clone repository: {e}")
-            
-        else:
-            # Handle command-line arguments (legacy mode)
-            repo_path = Path(args.repo or self.config.get('repo_path', '.'))
-            
-            if args.clone and not repo_path.exists():
-                subprocess.run(['git', 'clone', args.clone, str(repo_path)], check=True)
-            else:
-                # Find git root if we're in a subdirectory
-                git_root = self._find_git_root(repo_path)
-                if git_root:
-                    repo_path = git_root
-            
-            project_name = args.name or repo_path.name
-            base_branch = args.base or self.config.get('base_branch', 'main')
-            
-            self.config.set('repo_path', str(repo_path.absolute()))
-            self.config.set('project_name', project_name)
-            self.config.set('base_branch', base_branch)
-        
-        # Verify git repository and find root
-        final_repo_path = Path(self.config.get('repo_path'))
-        git_root = self._find_git_root(final_repo_path)
-        if not git_root:
-            raise CprojError(f"Not a git repository: {final_repo_path}")
-        
-        # Update config with the actual git root
-        if git_root != final_repo_path:
-            self.config.set('repo_path', str(git_root))
-            final_repo_path = git_root
-        
-        print(f"✅ Initialized project '{self.config.get('project_name')}' at {final_repo_path}")
-        
-        # Create temp directory if it doesn't exist
-        temp_root = Path(self.config.get('temp_root', str(Path.home() / '.cache' / 'cproj-workspaces')))
-        temp_root.mkdir(parents=True, exist_ok=True)
-        
-        # Show next steps
+        """Initialize system-level cproj configuration"""
+        print("🚀 Welcome to cproj!")
         print()
-        print("🎉 Ready to go! Try these commands:")
-        print(f"  cproj worktree create --branch feature/awesome-feature")
-        print(f"  cproj list")
-        print(f"  cproj config")
+        print("This will configure system-level settings.")
+        print("Projects are now automatically detected from your current working directory.")
+        print()
         
-        # Show tool availability
-        missing_tools = []
-        if not shutil.which('git'):
-            missing_tools.append('git')
-        if not shutil.which('uv') and self.config.get('python_prefer_uv'):
-            print("💡 Note: uv not found, will use venv as fallback")
-        if not shutil.which('gh'):
-            missing_tools.append('gh (for GitHub integration)')
-        if not OnePasswordIntegration.is_available() and self.config.get('use_1password'):
-            missing_tools.append('op (1Password CLI)')
+        # Check if we already have system config
+        if self.config.get('temp_root'):
+            print("✅ cproj is already configured!")
+            print()
+            print("Current system settings:")
+            self._show_system_config()
+            print()
+            proceed = input("Reconfigure system settings? [y/N]: ").strip().lower()
+            if proceed not in ['y', 'yes']:
+                return
         
-        if missing_tools:
-            print(f"⚠️  Missing tools: {', '.join(missing_tools)}")
-            print("   Install them for full functionality")
+        # Run system configuration
+        config_data = self._prompt_for_system_config()
+        
+        # Save system configuration
+        for key, value in config_data.items():
+            self.config.set(key, value)
+        
+        print()
+        print("✅ System configuration saved!")
+        print()
+        print("🎉 Ready to go! Now you can use cproj in any git repository:")
+        print("  cd /path/to/your/project")
+        print("  cproj w create --branch feature/awesome-feature")
+        print("  cproj list")
+        print("  cproj config")
+    
+    def _show_system_config(self):
+        """Show current system configuration"""
+        print(f"  Temp root: {self.config.get('temp_root', 'Not set')}")
+        print(f"  Terminal: {self.config.get('terminal', 'Not set')}")
+        print(f"  Editor: {self.config.get('editor', 'Not set')}")
+        print(f"  Python prefer uv: {self.config.get('python_prefer_uv', False)}")
+        print(f"  Node use nvm: {self.config.get('node_use_nvm', False)}")
+        print(f"  Linear org: {self.config.get('linear_org', 'Not set')}")
+        print(f"  GitHub reviewers: {', '.join(self.config.get('github_reviewers', []))}")
+    
+    def _prompt_for_system_config(self) -> Dict:
+        """Prompt for system-level configuration"""
+        config = {}
+        
+        print("🛠️ System Configuration")
+        print("-" * 50)
+        
+        # Temp directory for worktrees
+        default_temp = str(Path.home() / '.cache' / 'cproj-workspaces')
+        temp_root = input(f"Temp directory for worktrees [{default_temp}]: ").strip()
+        config['temp_root'] = temp_root or default_temp
+        
+        # Terminal preference
+        default_terminal = "Terminal" if sys.platform == "darwin" else "none"
+        terminal = input(f"Terminal app (Terminal, iTerm, none) [{default_terminal}]: ").strip()
+        config['terminal'] = terminal or default_terminal
+        
+        # Editor preference  
+        editor = input("Editor command (code, cursor, vim, etc.) [code]: ").strip()
+        config['editor'] = editor or 'code'
+        
+        # Python preferences
+        python_uv = input("Prefer uv for Python environments? [Y/n]: ").strip().lower()
+        config['python_prefer_uv'] = python_uv != 'n'
+        
+        # Node preferences
+        node_nvm = input("Use nvm for Node.js? [Y/n]: ").strip().lower()
+        config['node_use_nvm'] = node_nvm != 'n'
+        
+        # Optional integrations
+        print()
+        print("📱 Optional Integrations")
+        print("-" * 50)
+        
+        # Linear
+        linear_org = input("Linear organization (optional): ").strip()
+        if linear_org:
+            config['linear_org'] = linear_org
+        
+        # GitHub reviewers
+        github_reviewers = input("GitHub default reviewers (comma-separated, optional): ").strip()
+        if github_reviewers:
+            config['github_reviewers'] = [r.strip() for r in github_reviewers.split(',')]
+        
+        return config
     
     def _is_interactive(self) -> bool:
         """Check if we're running in an interactive terminal"""
@@ -1630,19 +1609,59 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         
         return suggestions[:3]  # Limit to 3 suggestions
     
+    def _detect_default_branch(self, repo_path: Path) -> Optional[str]:
+        """Detect the default branch for a repository"""
+        try:
+            # Try to get the default branch from origin
+            result = subprocess.run(
+                ['git', 'symbolic-ref', 'refs/remotes/origin/HEAD'],
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            # Extract branch name from refs/remotes/origin/branch_name
+            return result.stdout.strip().split('/')[-1]
+        except subprocess.CalledProcessError:
+            # Fall back to common default branches
+            for branch in ['main', 'master', 'develop']:
+                try:
+                    subprocess.run(
+                        ['git', 'show-ref', '--verify', f'refs/heads/{branch}'],
+                        cwd=repo_path,
+                        capture_output=True,
+                        check=True
+                    )
+                    return branch
+                except subprocess.CalledProcessError:
+                    continue
+        return None
+    
     def cmd_worktree_create(self, args):
         """Create worktree"""
-        # First try to detect current git repository, then fall back to config
-        current_repo = self._find_git_root(Path.cwd())
-        repo_path = Path(args.repo or current_repo or self.config.get('repo_path', '.'))
-        base_branch = args.base or self.config.get('base_branch', 'main')
-        temp_root = Path(args.temp_root or self.config.get('temp_root', tempfile.gettempdir()) or tempfile.gettempdir())
-        # Use the actual repo name, not the configured one
+        # Derive project context from current working directory
+        if args.repo:
+            repo_path = Path(args.repo)
+        else:
+            # Find git repository root from current working directory
+            repo_path = self._find_git_root(Path.cwd())
+            if not repo_path:
+                print("❌ Not in a git repository!")
+                print()
+                print("You need to be in a git repository or specify --repo:")
+                print("  cd /path/to/your/project")
+                print("  cproj w create --branch feature/name")
+                print()
+                print("Or:")
+                print("  cproj w create --repo /path/to/project --branch feature/name")
+                return
+        
+        # Derive project settings from repository
         project_name = repo_path.name
+        base_branch = args.base or self._detect_default_branch(repo_path) or 'main'
+        temp_root = Path(args.temp_root or self.config.get('temp_root', tempfile.gettempdir()) or tempfile.gettempdir())
         
         logger.debug(f"Using repository: {repo_path} (project: {project_name})")
-        if current_repo and current_repo != Path(self.config.get('repo_path', '.')):
-            logger.info(f"Using current repository: {project_name} (detected from cwd)")
         
         # Interactive prompt for branch name if not provided and in interactive mode
         if not args.branch:
