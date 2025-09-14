@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "linear": {
+      "command": "npx",
+      "args": [
+        "@linear/mcp-server"
+      ],
+      "env": {
+        "LINEAR_API_KEY": {
+          "description": "Linear API key for creating and managing tickets",
+          "required": true
+        }
+      }
+    }
+  }
+}

@@ -3,7 +3,10 @@
     "allow": [
       "Bash(chmod:*)",
       "Bash(git push:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Read(/Users/cstrahorn/.cache/cproj-workspaces/trivalley_fix/still-not-filtering_20250901_103238/**)",
+      "Bash(python -m pytest test_claude_review_agents.py::TestErrorHandling::test_specific_exception_handling -v)",
+      "Bash(python -m pytest test_claude_review_agents.py::TestTemplateSecurityFixes::test_format_agent_prompt_uses_safe_substitution -v)"
     ],
     "deny": [],
     "ask": []

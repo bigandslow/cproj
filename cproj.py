@@ -870,9 +870,36 @@ class CprojCLI:
         print("🔗 Integrations")
         print("-" * 50)
         
+        # Linear Integration (Enhanced)
+        print("Configure Linear integration for ticket creation:")
         linear_org = input("Linear organization URL (optional): ").strip()
         if linear_org:
             config['linear_org'] = linear_org
+            
+            # Get Linear team and project info
+            linear_team = input("Default Linear team ID/key (optional): ").strip()
+            if linear_team:
+                config['linear_default_team'] = linear_team
+                
+            linear_project = input("Default Linear project ID (optional): ").strip()
+            if linear_project:
+                config['linear_default_project'] = linear_project
+            
+            # Ask about API key setup
+            setup_api_key = input("Setup Linear API key now? [y/N]: ").strip().lower()
+            if setup_api_key in ['y', 'yes']:
+                print("\n📝 Linear API Key Setup:")
+                print("1. Go to https://linear.app/settings/api")
+                print("2. Create a new Personal API Key")
+                print("3. Copy the key (it starts with 'lin_api_')")
+                print("4. Paste it here (it will be stored securely)")
+                
+                api_key = input("\nLinear API Key: ").strip()
+                if api_key:
+                    # Store API key securely
+                    self._store_linear_api_key(api_key)
+                    print("✅ API key stored securely in .env.linear")
+                    print("💡 This file is automatically added to .gitignore")
         
         github_default_reviewers = input("Default GitHub reviewers (comma-separated, optional): ").strip()
         if github_default_reviewers:
@@ -892,6 +919,9 @@ class CprojCLI:
         
         claude_nvm = input("Auto-create nvm setup scripts for Claude CLI in worktrees? [Y/n]: ").strip().lower()
         config['claude_nvm_default'] = 'no' if claude_nvm in ['n', 'no'] else 'yes'
+        
+        claude_workspace = input("Auto-setup Claude workspace with commands and agents in worktrees? [Y/n]: ").strip().lower()
+        config['claude_workspace_default'] = 'no' if claude_workspace in ['n', 'no'] else 'yes'
         
         print()
         
@@ -969,6 +999,8 @@ class CprojCLI:
         create_parser.add_argument('--java-build', action='store_true', help='Auto-build Java')
         create_parser.add_argument('--open-editor', action='store_true', help='Open editor after creating worktree')
         create_parser.add_argument('--no-terminal', action='store_true', help='Do not open terminal after creating worktree')
+        create_parser.add_argument('--setup-claude', action='store_true', help='Force setup Claude workspace')
+        create_parser.add_argument('--no-claude', action='store_true', help='Skip Claude workspace setup')
         
         # review command
         review_parser = subparsers.add_parser('review', help='Review commands')
@@ -1015,6 +1047,19 @@ class CprojCLI:
         config_parser.add_argument('key', nargs='?', help='Config key')
         config_parser.add_argument('value', nargs='?', help='Config value')
         
+        # linear config command
+        linear_parser = subparsers.add_parser('linear', help='Linear integration management')
+        linear_sub = linear_parser.add_subparsers(dest='linear_command')
+        
+        linear_setup = linear_sub.add_parser('setup', help='Setup Linear integration')
+        linear_setup.add_argument('--api-key', help='Linear API key')
+        linear_setup.add_argument('--team', help='Default team ID/key')
+        linear_setup.add_argument('--project', help='Default project ID')
+        linear_setup.add_argument('--org', help='Linear organization URL')
+        
+        linear_test = linear_sub.add_parser('test', help='Test Linear integration')
+        linear_status = linear_sub.add_parser('status', help='Show Linear configuration status')
+        
         return parser
     
     def run(self, args: Optional[List[str]] = None):
@@ -1051,6 +1096,8 @@ class CprojCLI:
                 self.cmd_open(parsed_args)
             elif parsed_args.command == 'config':
                 self.cmd_config(parsed_args)
+            elif parsed_args.command == 'linear':
+                self.cmd_linear(parsed_args)
             else:
                 parser.print_help()
                 
@@ -1302,6 +1349,203 @@ echo "💡 Tip: Run 'source setup-claude.sh' whenever you open a new terminal in
             except OSError as e:
                 print(f"⚠️  Failed to create nvm setup script: {e}")
     
+    def _setup_claude_workspace(self, worktree_path: Path, repo_path: Path, args=None):
+        """Setup Claude workspace configuration with commands and agents"""
+        # Get cproj's Claude templates
+        cproj_root = Path(__file__).parent
+        cproj_claude_dir = cproj_root / '.claude'
+        
+        # Check target project's .claude directory
+        project_claude_dir = repo_path / '.claude'
+        
+        # Need at least cproj templates to proceed
+        if not cproj_claude_dir.exists():
+            return
+        
+        # Handle explicit command-line flags
+        if args and hasattr(args, 'no_claude') and args.no_claude:
+            return
+        
+        # Check if we should set up Claude workspace
+        default_action = self.config.get('claude_workspace_default', 'yes')
+        setup_workspace = default_action == 'yes'
+        
+        # Override with explicit --setup-claude flag
+        if args and hasattr(args, 'setup_claude') and args.setup_claude:
+            setup_workspace = True
+        
+        if self._is_interactive():
+            print(f"\n🤖 Claude Workspace Setup")
+            print("Found Claude commands and agents configuration.")
+            
+            if default_action == 'yes':
+                response = input(f"Setup Claude workspace in worktree? [Y/n]: ").strip().lower()
+                setup_workspace = response in ('', 'y', 'yes')
+            else:
+                response = input(f"Setup Claude workspace in worktree? [y/N]: ").strip().lower()
+                setup_workspace = response in ('y', 'yes')
+        
+        if setup_workspace:
+            print(f"🔧 Setting up Claude workspace in {worktree_path}")
+            try:
+                import shutil
+                
+                # Create .claude directory in worktree
+                worktree_claude_dir = worktree_path / '.claude'
+                worktree_claude_dir.mkdir(exist_ok=True)
+                print(f"Created .claude directory: {worktree_claude_dir}")
+                
+                # Start with cproj templates as base, then merge project configs
+                for subdir in ['commands', 'agents']:
+                    cproj_source_dir = cproj_claude_dir / subdir
+                    target_dir = worktree_claude_dir / subdir
+                    
+                    # Copy cproj templates first
+                    if cproj_source_dir.exists():
+                        if target_dir.exists():
+                            shutil.rmtree(target_dir)
+                        shutil.copytree(cproj_source_dir, target_dir)
+                        print(f"  ✅ Copied cproj {subdir} templates")
+                    
+                    # Merge project-specific configs if they exist
+                    if project_claude_dir.exists():
+                        project_source_dir = project_claude_dir / subdir
+                        if project_source_dir.exists():
+                            # Ensure target directory exists
+                            target_dir.mkdir(exist_ok=True)
+                            # Copy project files, potentially overwriting templates
+                            for item in project_source_dir.iterdir():
+                                target_file = target_dir / item.name
+                                if item.is_file():
+                                    shutil.copy2(item, target_file)
+                                    print(f"  ✅ Merged project {item.name}")
+                                elif item.is_dir():
+                                    if target_file.exists():
+                                        shutil.rmtree(target_file)
+                                    shutil.copytree(item, target_file)
+                                    print(f"  ✅ Merged project {item.name}/")
+                
+                # Copy MCP config (prefer project over cproj template)
+                mcp_source = None
+                if project_claude_dir.exists():
+                    project_mcp = project_claude_dir / 'mcp_config.json'
+                    if project_mcp.exists():
+                        mcp_source = project_mcp
+                        print(f"  ✅ Using project mcp_config.json")
+                
+                if not mcp_source:
+                    cproj_mcp = cproj_claude_dir / 'mcp_config.json'
+                    if cproj_mcp.exists():
+                        mcp_source = cproj_mcp
+                        print(f"  ✅ Using cproj mcp_config.json")
+                
+                if mcp_source:
+                    shutil.copy2(mcp_source, worktree_claude_dir / 'mcp_config.json')
+                
+                # Load Linear configuration
+                linear_config = self._load_linear_config()
+                
+                # Create workspace-specific configuration
+                workspace_config = {
+                    "project_root": str(repo_path),
+                    "worktree_path": str(worktree_path),
+                    "linear": {
+                        "org": self.config.get('linear_org'),
+                        "default_team": self.config.get('linear_default_team'),
+                        "default_project": self.config.get('linear_default_project'),
+                        "api_key_file": ".env.linear"
+                    },
+                    "commands": {
+                        "add-ticket": {
+                            "description": "Create comprehensive Linear tickets using AI agents",
+                            "agents": ["product-manager", "ux-designer", "senior-software-engineer"],
+                            "requires_mcp": ["linear"]
+                        }
+                    },
+                    "agents": {
+                        "product-manager": "Turn high-level asks into crisp PRDs",
+                        "ux-designer": "Create clear, accessible, user-centric designs", 
+                        "senior-software-engineer": "Plan implementation with tests and docs",
+                        "code-reviewer": "Review code for correctness and maintainability"
+                    }
+                }
+                
+                config_file = worktree_claude_dir / 'workspace.json'
+                with open(config_file, 'w') as f:
+                    json.dump(workspace_config, f, indent=2)
+                
+                print(f"✅ Setup Claude workspace configuration")
+                print(f"💡 Available commands: add-ticket")
+                print(f"💡 Available agents: product-manager, ux-designer, senior-software-engineer, code-reviewer")
+                
+            except (OSError, shutil.Error) as e:
+                print(f"⚠️  Failed to setup Claude workspace: {e}")
+    
+    def _store_linear_api_key(self, api_key: str):
+        """Store Linear API key securely in .env.linear file"""
+        try:
+            # Find git repository root
+            git_root = self._find_git_root(Path.cwd())
+            if not git_root:
+                raise ValueError("Not in a git repository")
+            
+            # Create .env.linear file
+            env_file = git_root / '.env.linear'
+            with open(env_file, 'w') as f:
+                f.write(f"# Linear API Key - DO NOT COMMIT TO GIT\n")
+                f.write(f"# This file is automatically added to .gitignore\n")
+                f.write(f"LINEAR_API_KEY={api_key}\n")
+            
+            # Set restrictive permissions (owner read/write only)
+            env_file.chmod(0o600)
+            
+            # Add to .gitignore if not already present
+            self._add_to_gitignore(git_root, '.env.linear')
+            
+        except (OSError, ValueError) as e:
+            raise ValueError(f"Failed to store API key: {e}")
+    
+    def _add_to_gitignore(self, repo_path: Path, pattern: str):
+        """Add pattern to .gitignore if not already present"""
+        gitignore_path = repo_path / '.gitignore'
+        
+        # Check if pattern already exists
+        if gitignore_path.exists():
+            with open(gitignore_path, 'r') as f:
+                content = f.read()
+                if pattern in content:
+                    return
+        
+        # Add pattern to .gitignore
+        with open(gitignore_path, 'a') as f:
+            if gitignore_path.exists() and not content.endswith('\n'):
+                f.write('\n')
+            f.write(f"# Linear API key (added by cproj)\n")
+            f.write(f"{pattern}\n")
+    
+    def _load_linear_config(self) -> Dict[str, str]:
+        """Load Linear configuration from .env.linear file"""
+        git_root = self._find_git_root(Path.cwd())
+        if not git_root:
+            return {}
+        
+        env_file = git_root / '.env.linear'
+        if not env_file.exists():
+            return {}
+        
+        config = {}
+        try:
+            with open(env_file, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        key, value = line.split('=', 1)
+                        config[key.strip()] = value.strip()
+        except OSError:
+            pass
+        
+        return config
+    
     def _generate_branch_suggestions(self) -> List[str]:
         """Generate reasonable branch name suggestions"""
         from datetime import datetime
@@ -1479,6 +1723,9 @@ echo "💡 Tip: Run 'source setup-claude.sh' whenever you open a new terminal in
         
         # Setup nvm for Claude CLI if needed
         self._setup_nvm_for_claude(worktree_path, node_env)
+        
+        # Setup Claude workspace configuration
+        self._setup_claude_workspace(worktree_path, repo_path, args)
         
         print(f"Created worktree: {worktree_path}")
         print(f"Branch: {args.branch}")
@@ -2033,6 +2280,118 @@ echo "💡 Tip: Run 'source setup-claude.sh' whenever you open a new terminal in
             # Set key-value
             self.config.set(args.key, args.value)
             print(f"Set {args.key} = {args.value}")
+    
+    def cmd_linear(self, args):
+        """Linear integration management"""
+        if args.linear_command == 'setup':
+            self.cmd_linear_setup(args)
+        elif args.linear_command == 'test':
+            self.cmd_linear_test(args)
+        elif args.linear_command == 'status':
+            self.cmd_linear_status(args)
+        else:
+            print("Available subcommands: setup, test, status")
+    
+    def cmd_linear_setup(self, args):
+        """Setup Linear integration"""
+        print("🔗 Linear Integration Setup")
+        print("-" * 40)
+        
+        # Update organization URL
+        if args.org:
+            self.config.set('linear_org', args.org)
+            print(f"✅ Set organization: {args.org}")
+        
+        # Update default team
+        if args.team:
+            self.config.set('linear_default_team', args.team)
+            print(f"✅ Set default team: {args.team}")
+        
+        # Update default project
+        if args.project:
+            self.config.set('linear_default_project', args.project)
+            print(f"✅ Set default project: {args.project}")
+        
+        # Update API key
+        if args.api_key:
+            try:
+                self._store_linear_api_key(args.api_key)
+                print("✅ API key stored securely")
+            except ValueError as e:
+                print(f"❌ Failed to store API key: {e}")
+                return
+        
+        print("\n💡 Configuration updated! Test with: cproj linear test")
+    
+    def cmd_linear_test(self, args):
+        """Test Linear integration"""
+        print("🧪 Testing Linear Integration")
+        print("-" * 40)
+        
+        # Check configuration
+        linear_config = self._load_linear_config()
+        if not linear_config.get('LINEAR_API_KEY'):
+            print("❌ No API key found. Run: cproj linear setup --api-key YOUR_KEY")
+            return
+        
+        org = self.config.get('linear_org')
+        team = self.config.get('linear_default_team')
+        
+        print(f"Organization: {org or 'Not configured'}")
+        print(f"Default Team: {team or 'Not configured'}")
+        print(f"API Key: {'✅ Found' if linear_config.get('LINEAR_API_KEY') else '❌ Missing'}")
+        print(f"MCP Config: {'✅ Available' if (Path.cwd() / '.claude' / 'mcp_config.json').exists() else '❌ Missing'}")
+        
+        # TODO: Add actual API test when Linear MCP is available
+        print("\n💡 Basic configuration looks good!")
+        print("📝 To fully test, try: add-ticket 'test ticket creation'")
+    
+    def cmd_linear_status(self, args):
+        """Show Linear configuration status"""
+        print("📊 Linear Integration Status")
+        print("-" * 40)
+        
+        # Load configurations
+        linear_config = self._load_linear_config()
+        
+        # Show cproj config
+        print("\n🔧 cproj Configuration:")
+        print(f"  Organization: {self.config.get('linear_org', 'Not configured')}")
+        print(f"  Default Team: {self.config.get('linear_default_team', 'Not configured')}")
+        print(f"  Default Project: {self.config.get('linear_default_project', 'Not configured')}")
+        
+        # Show secure config
+        print("\n🔐 Secure Configuration:")
+        print(f"  API Key: {'✅ Configured' if linear_config.get('LINEAR_API_KEY') else '❌ Not configured'}")
+        if linear_config.get('LINEAR_API_KEY'):
+            key = linear_config['LINEAR_API_KEY']
+            print(f"  Key Preview: {key[:8]}...{key[-4:] if len(key) > 12 else ''}")
+        
+        # Show file status
+        git_root = self._find_git_root(Path.cwd())
+        if git_root:
+            env_file = git_root / '.env.linear'
+            gitignore_file = git_root / '.gitignore'
+            
+            print("\n📁 File Status:")
+            print(f"  .env.linear: {'✅ Exists' if env_file.exists() else '❌ Missing'}")
+            if env_file.exists():
+                print(f"  File permissions: {oct(env_file.stat().st_mode)[-3:]}")
+            
+            if gitignore_file.exists():
+                with open(gitignore_file) as f:
+                    content = f.read()
+                    is_ignored = '.env.linear' in content
+                    print(f"  .gitignore entry: {'✅ Protected' if is_ignored else '⚠️  Not protected'}")
+            else:
+                print(f"  .gitignore: ❌ Missing")
+        
+        # Show workspace status
+        claude_dir = Path.cwd() / '.claude'
+        print("\n🤖 Workspace Status:")
+        print(f"  Commands available: {'✅ Yes' if (claude_dir / 'commands').exists() else '❌ No'}")
+        print(f"  Agents available: {'✅ Yes' if (claude_dir / 'agents').exists() else '❌ No'}")
+        print(f"  MCP config: {'✅ Yes' if (claude_dir / 'mcp_config.json').exists() else '❌ No'}")
 
 
 def main():
