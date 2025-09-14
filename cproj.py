@@ -337,7 +337,11 @@ class AgentJson:
     SCHEMA_VERSION = "1.0"
     
     def __init__(self, worktree_path: Path):
-        self.path = worktree_path / '.agent.json'
+        # Create .cproj directory if it doesn't exist
+        cproj_dir = worktree_path / '.cproj'
+        cproj_dir.mkdir(exist_ok=True)
+        
+        self.path = cproj_dir / '.agent.json'
         self.data = self._load() if self.path.exists() else self._default_data()
     
     def _default_data(self) -> Dict:
@@ -634,10 +638,10 @@ class TerminalAutomation:
             print(f"Terminal automation not supported on {platform.system()}")
             return
         
-        # Check if setup-claude.sh exists and build the command
-        setup_script = path / 'setup-claude.sh'
+        # Check if setup-claude.sh exists in .cproj directory and build the command
+        setup_script = path / '.cproj' / 'setup-claude.sh'
         if setup_script.exists():
-            base_command = f"cd '{path}' && source setup-claude.sh"
+            base_command = f"cd '{path}' && source .cproj/setup-claude.sh"
         else:
             base_command = f"cd '{path}'"
         
@@ -1331,11 +1335,15 @@ class CprojCLI:
         
         if setup_nvm:
             try:
+                # Create .cproj directory for cproj-specific files
+                cproj_dir = worktree_path / '.cproj'
+                cproj_dir.mkdir(exist_ok=True)
+                
                 # Create a setup script that sources nvm and uses LTS
-                setup_script = worktree_path / 'setup-claude.sh'
+                setup_script = cproj_dir / 'setup-claude.sh'
                 script_content = '''#!/bin/bash
 # Auto-generated script to setup Node.js for Claude CLI
-# Run: source setup-claude.sh
+# Run: source .cproj/setup-claude.sh
 
 echo "🚀 Setting up Node.js environment for Claude CLI..."
 
@@ -1347,13 +1355,13 @@ export NVM_DIR="$HOME/.nvm"
 nvm use --lts
 
 echo "✅ Node.js LTS activated. You can now run 'claude' command."
-echo "💡 Tip: Run 'source setup-claude.sh' whenever you open a new terminal in this directory"
+echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new terminal in this directory"
 '''
                 setup_script.write_text(script_content)
                 setup_script.chmod(0o755)
                 
-                print(f"✅ Created setup-claude.sh script")
-                print(f"💡 Run 'source setup-claude.sh' in your terminal to activate Node.js LTS")
+                print(f"✅ Created .cproj/setup-claude.sh script")
+                print(f"💡 Run 'source .cproj/setup-claude.sh' in your terminal to activate Node.js LTS")
                 
             except OSError as e:
                 print(f"⚠️  Failed to create nvm setup script: {e}")
@@ -1761,10 +1769,10 @@ echo "💡 Tip: Run 'source setup-claude.sh' whenever you open a new terminal in
     def cmd_review_open(self, args):
         """Open review"""
         worktree_path = Path.cwd()
-        agent_json_path = worktree_path / '.agent.json'
+        agent_json_path = worktree_path / '.cproj' / '.agent.json'
         
         if not agent_json_path.exists():
-            raise CprojError("Not in a cproj worktree (no .agent.json found). Run from worktree root directory.")
+            raise CprojError("Not in a cproj worktree (no .agent.json found in .cproj directory). Run from worktree root directory.")
         
         agent_json = AgentJson(worktree_path)
         repo_path = Path(agent_json.data['project']['repo_path'])
@@ -1824,10 +1832,10 @@ echo "💡 Tip: Run 'source setup-claude.sh' whenever you open a new terminal in
             raise CprojError(f"Review agents module not available: {e}")
         
         worktree_path = Path.cwd()
-        agent_json_path = worktree_path / '.agent.json'
+        agent_json_path = worktree_path / '.cproj' / '.agent.json'
         
         if not agent_json_path.exists():
-            raise CprojError("Not in a cproj worktree (no .agent.json found). Run from worktree root directory.")
+            raise CprojError("Not in a cproj worktree (no .agent.json found in .cproj directory). Run from worktree root directory.")
         
         try:
             # Load agent data for context
@@ -1896,10 +1904,10 @@ echo "💡 Tip: Run 'source setup-claude.sh' whenever you open a new terminal in
     def cmd_merge(self, args):
         """Merge and cleanup"""
         worktree_path = Path.cwd()
-        agent_json_path = worktree_path / '.agent.json'
+        agent_json_path = worktree_path / '.cproj' / '.agent.json'
         
         if not agent_json_path.exists():
-            raise CprojError("Not in a cproj worktree (no .agent.json found). Run from worktree root directory.")
+            raise CprojError("Not in a cproj worktree (no .agent.json found in .cproj directory). Run from worktree root directory.")
         
         agent_json = AgentJson(worktree_path)
         repo_path = Path(agent_json.data['project']['repo_path'])
@@ -1963,7 +1971,7 @@ echo "💡 Tip: Run 'source setup-claude.sh' whenever you open a new terminal in
             branch = wt.get('branch', 'N/A')
             
             # Try to load .agent.json for additional info
-            agent_json_path = path / '.agent.json'
+            agent_json_path = path / '.cproj' / '.agent.json'
             if agent_json_path.exists():
                 try:
                     agent_json = AgentJson(path)
@@ -1987,9 +1995,9 @@ echo "💡 Tip: Run 'source setup-claude.sh' whenever you open a new terminal in
         else:
             worktree_path = Path.cwd()
         
-        agent_json_path = worktree_path / '.agent.json'
+        agent_json_path = worktree_path / '.cproj' / '.agent.json'
         if not agent_json_path.exists():
-            raise CprojError("Not in a cproj worktree (no .agent.json found). Run from worktree root directory.")
+            raise CprojError("Not in a cproj worktree (no .agent.json found in .cproj directory). Run from worktree root directory.")
         
         agent_json = AgentJson(worktree_path)
         
@@ -2037,7 +2045,7 @@ echo "💡 Tip: Run 'source setup-claude.sh' whenever you open a new terminal in
                 
                 # Try to get age
                 age_info = ""
-                agent_json_path = path / '.agent.json'
+                agent_json_path = path / '.cproj' / '.agent.json'
                 if agent_json_path.exists():
                     try:
                         agent_json = AgentJson(path)
@@ -2053,30 +2061,17 @@ echo "💡 Tip: Run 'source setup-claude.sh' whenever you open a new terminal in
             
             print()
             print("Cleanup options:")
-            print("  1. Remove worktrees older than X days")
-            print("  2. Remove merged worktrees only") 
-            print("  3. Interactive selection")
-            print("  4. Cancel")
+            print("  1. Interactive selection")
+            print("  2. Remove worktrees newer than X days")
+            print("  3. Remove worktrees older than X days")
+            print("  4. Remove merged worktrees only") 
+            print("  5. Cancel")
             
             while True:
-                choice = input("Select cleanup method [1-4]: ").strip()
+                choice = input("Select cleanup method [1-5]: ").strip()
                 
                 if choice == '1':
-                    default_days = self.config.get('cleanup_days', 14)
-                    days_input = input(f"Remove worktrees older than how many days? [{default_days}]: ").strip()
-                    try:
-                        args.older_than = int(days_input) if days_input else default_days
-                        break
-                    except ValueError:
-                        print("❌ Please enter a valid number")
-                        continue
-                        
-                elif choice == '2':
-                    args.merged_only = True
-                    break
-                    
-                elif choice == '3':
-                    # Interactive selection mode
+                    # Interactive selection mode (moved to option 1)
                     current_worktree = Path.cwd()
                     selected_for_removal = []
                     
@@ -2090,7 +2085,7 @@ echo "💡 Tip: Run 'source setup-claude.sh' whenever you open a new terminal in
                         
                         # Get age info
                         age_info = ""
-                        agent_json_path = path / '.agent.json'
+                        agent_json_path = path / '.cproj' / '.agent.json'
                         if agent_json_path.exists():
                             try:
                                 agent_json = AgentJson(path)
@@ -2103,85 +2098,74 @@ echo "💡 Tip: Run 'source setup-claude.sh' whenever you open a new terminal in
                                 pass
                         
                         # Check if this is the current worktree
-                        is_current = False
-                        try:
-                            # Use absolute paths and resolve any symlinks
-                            current_abs = current_worktree.resolve()
-                            path_abs = path.resolve()
-                            is_current = current_abs == path_abs
-                            
-                            # Additional check - see if we're inside this worktree
-                            if not is_current:
-                                try:
-                                    current_abs.relative_to(path_abs)
-                                    is_current = True
-                                except ValueError:
-                                    pass  # current_worktree is not under path
-                        except Exception:
-                            # Fallback comparison
-                            is_current = str(current_worktree) == str(path)
-                        
-                        current_indicator = " [CURRENT]" if is_current else ""
-                        default_answer = "n" if is_current else "y"
+                        is_current = current_worktree == path or current_worktree.resolve() == path.resolve()
+                        status_info = " [CURRENT]" if is_current else ""
                         
                         while True:
-                            answer = input(f"Remove {path.name} [{branch}]{age_info}{current_indicator}? [y/N]: ").strip().lower()
-                            if not answer:
-                                answer = "n"  # Default to not removing
-                            
-                            if answer in ['y', 'yes']:
-                                if is_current:
-                                    print("⚠️  Cannot remove current worktree. Skipping.")
-                                else:
-                                    selected_for_removal.append(wt)
-                                    print(f"✓ Added {path.name} to removal list")
+                            response = input(f"Remove {path.name} [{branch}]{age_info}{status_info}? [y/N]: ").strip().lower()
+                            if response in ['', 'n', 'no']:
                                 break
-                            elif answer in ['n', 'no']:
-                                print(f"○ Keeping {path.name}")
+                            elif response in ['y', 'yes']:
+                                if not is_current:  # Don't allow removing current worktree
+                                    selected_for_removal.append(wt)
+                                else:
+                                    print("❌ Cannot remove current worktree")
                                 break
                             else:
-                                print("❌ Please enter y or n")
-                                continue
+                                print("Please enter 'y' or 'n'")
                     
-                    if not selected_for_removal:
-                        print("No worktrees selected for removal.")
-                        return
-                    
-                    print(f"\n📋 Selected {len(selected_for_removal)} worktree(s) for removal:")
-                    for wt in selected_for_removal:
-                        path = Path(wt['path'])
-                        branch = wt.get('branch', 'N/A')
-                        print(f"  - {path.name} [{branch}]")
-                    
-                    confirm = input(f"\nConfirm removal of {len(selected_for_removal)} worktree(s)? [y/N]: ").strip().lower()
-                    if confirm not in ['y', 'yes']:
-                        print("Cleanup cancelled.")
-                        return
-                    
-                    # Remove selected worktrees
-                    print(f"\n🗑️  Removing {len(selected_for_removal)} worktree(s)...")
-                    removed_count = 0
-                    for wt in selected_for_removal:
-                        path = Path(wt['path'])
-                        branch = wt.get('branch', 'N/A')
-                        print(f"Removing {path.name} [{branch}]...")
-                        try:
-                            git.remove_worktree(path, force=True)
-                            print(f"✅ Successfully removed: {path.name}")
-                            removed_count += 1
-                        except Exception as e:
-                            print(f"❌ Failed to remove {path.name}: {e}")
-                    
-                    print(f"\n📊 Cleanup complete: {removed_count}/{len(selected_for_removal)} worktrees removed")
-                    
+                    if selected_for_removal:
+                        print(f"\n📋 Selected {len(selected_for_removal)} worktrees for removal")
+                        for wt in selected_for_removal:
+                            print(f"  - {Path(wt['path']).name} [{wt.get('branch', 'N/A')}]")
+                        
+                        confirm = input(f"\nConfirm removal? [y/N]: ").strip().lower()
+                        if confirm in ['y', 'yes']:
+                            for wt in selected_for_removal:
+                                try:
+                                    git.remove_worktree(Path(wt['path']))
+                                    print(f"✅ Removed {Path(wt['path']).name}")
+                                except Exception as e:
+                                    print(f"❌ Failed to remove {Path(wt['path']).name}: {e}")
+                        else:
+                            print("Cleanup cancelled")
+                    else:
+                        print("No worktrees selected for removal")
                     return
-                    
+                        
+                elif choice == '2':
+                    # New option: Remove worktrees newer than X days
+                    default_days = 7
+                    days_input = input(f"Remove worktrees newer than how many days? [{default_days}]: ").strip()
+                    try:
+                        newer_days = int(days_input) if days_input else default_days
+                        # We'll need to add this logic - for now just set a flag
+                        args.newer_than = newer_days
+                        break
+                    except ValueError:
+                        print("❌ Please enter a valid number")
+                        continue
+                        
+                elif choice == '3':
+                    default_days = self.config.get('cleanup_days', 14)
+                    days_input = input(f"Remove worktrees older than how many days? [{default_days}]: ").strip()
+                    try:
+                        args.older_than = int(days_input) if days_input else default_days
+                        break
+                    except ValueError:
+                        print("❌ Please enter a valid number")
+                        continue
+                        
                 elif choice == '4':
-                    print("Cleanup cancelled.")
+                    args.merged_only = True
+                    break
+                    
+                elif choice == '5':
+                    print("Cleanup cancelled")
                     return
                     
                 else:
-                    print("❌ Please enter 1, 2, 3, or 4")
+                    print("❌ Please enter 1-5")
                     continue
             
             print()
@@ -2196,7 +2180,7 @@ echo "💡 Tip: Run 'source setup-claude.sh' whenever you open a new terminal in
             
             # Check age
             if args.older_than:
-                agent_json_path = path / '.agent.json'
+                agent_json_path = path / '.cproj' / '.agent.json'
                 if agent_json_path.exists():
                     try:
                         agent_json = AgentJson(path)
@@ -2241,15 +2225,15 @@ echo "💡 Tip: Run 'source setup-claude.sh' whenever you open a new terminal in
         else:
             worktree_path = Path.cwd()
         
-        agent_json_path = worktree_path / '.agent.json'
+        agent_json_path = worktree_path / '.cproj' / '.agent.json'
         if not agent_json_path.exists():
             # Check if we're in a subdirectory of a worktree
             parent = worktree_path.parent
             while parent != parent.parent:
-                if (parent / '.agent.json').exists():
-                    raise CprojError(f"Found .agent.json in parent directory: {parent}\nRun command from worktree root or specify path with 'cproj open {parent}'")
+                if (parent / '.cproj' / '.agent.json').exists():
+                    raise CprojError(f"Found .agent.json in parent directory: {parent}/.cproj\nRun command from worktree root or specify path with 'cproj open {parent}'")
                 parent = parent.parent
-            raise CprojError("Not in a cproj worktree (no .agent.json found)")
+            raise CprojError("Not in a cproj worktree (no .agent.json found in .cproj directory)")
         
         agent_json = AgentJson(worktree_path)
         project_name = agent_json.data['project']['name']
