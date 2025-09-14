@@ -34,6 +34,8 @@ dependencies = []
 [project.optional-dependencies]
 dev = [
     "pytest>=6.0",
+    "pytest-cov>=4.0",
+    "pytest-mock>=3.10",
     "black>=22.0",
     "flake8>=4.0",
     "mypy>=0.900",
@@ -87,4 +89,17 @@ exclude_lines = [
     "raise AssertionError",
     "raise NotImplementedError",
     "if __name__ == .__main__.:",
+]
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q --strict-markers"
+testpaths = [
+    "tests",
+    ".",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "security: marks tests as security-focused tests",
 ]

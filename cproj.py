@@ -17,6 +17,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import tempfile
 import getpass
+import urllib.parse
+import shlex
 
 # Setup logging
 logger = logging.getLogger('cproj')
@@ -64,21 +66,36 @@ class OnePasswordIntegration:
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             return None
     
-    @staticmethod 
+    @staticmethod
+    def _sanitize_op_argument(arg: str) -> str:
+        """Sanitize arguments for 1Password CLI to prevent injection"""
+        if not isinstance(arg, str):
+            arg = str(arg)
+        # Remove shell metacharacters and only allow safe characters
+        return ''.join(c for c in arg if c.isalnum() or c in '-_. ')
+
+    @staticmethod
     def store_secret(title: str, value: str, vault: str = None) -> Optional[str]:
         """Store secret in 1Password and return reference"""
         if not OnePasswordIntegration.is_available():
             return None
-        
+
+        # Validate and sanitize inputs
+        if not title or not value:
+            return None
+
+        safe_title = OnePasswordIntegration._sanitize_op_argument(title)
+        safe_vault = OnePasswordIntegration._sanitize_op_argument(vault) if vault else None
+
         try:
-            cmd = ['op', 'item', 'create', '--category=password', f'--title={title}']
-            if vault:
-                cmd.append(f'--vault={vault}')
-            cmd.append(f'password={value}')
-            
+            cmd = ['op', 'item', 'create', '--category=password', f'--title={safe_title}']
+            if safe_vault:
+                cmd.append(f'--vault={safe_vault}')
+            cmd.append(f'password={value}')  # Password value is passed as argument, not shell-escaped
+
             result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=10)
             # Extract reference from output (simplified)
-            return f"op://{vault or 'Private'}/{title}/password"
+            return f"op://{safe_vault or 'Private'}/{safe_title}/password"
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             return None
     
@@ -394,8 +411,13 @@ class AgentJson:
         }
     
     def _load(self) -> Dict:
-        with open(self.path) as f:
-            return json.load(f)
+        try:
+            with open(self.path) as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError) as e:
+            logger.debug(f"Error loading agent.json from {self.path}: {e}")
+            # Return default data if file is corrupted
+            return self._default_data()
     
     def save(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -528,11 +550,23 @@ class EnvironmentSetup:
             env_data['active'] = True
             
             if auto_install and requirements_exists:
-                pip_cmd = str(self.worktree_path / '.venv' / 'bin' / 'pip')
+                # Validate path safety
+                venv_path = self.worktree_path / '.venv'
+                if not venv_path.exists() or not venv_path.is_dir():
+                    raise CprojError(f"Virtual environment not found at {venv_path}")
+
                 if platform.system() == 'Windows':
-                    pip_cmd = str(self.worktree_path / '.venv' / 'Scripts' / 'pip.exe')
-                
-                subprocess.run([pip_cmd, 'install', '-r', 'requirements.txt'], 
+                    pip_cmd = venv_path / 'Scripts' / 'pip.exe'
+                else:
+                    pip_cmd = venv_path / 'bin' / 'pip'
+
+                # Validate pip executable exists and is within expected path
+                if not pip_cmd.exists():
+                    raise CprojError(f"pip executable not found at {pip_cmd}")
+                if not str(pip_cmd).startswith(str(self.worktree_path)):
+                    raise CprojError(f"pip path {pip_cmd} is outside worktree {self.worktree_path}")
+
+                subprocess.run([str(pip_cmd), 'install', '-r', 'requirements.txt'],
                              cwd=self.worktree_path, check=True, capture_output=True)
         
         except subprocess.CalledProcessError:
@@ -572,7 +606,8 @@ class EnvironmentSetup:
             # For now, just record what we would do
             env_data['node_version'] = node_version
             
-        except Exception:
+        except (subprocess.CalledProcessError, OSError) as e:
+            logger.debug(f"Error setting up Node environment: {e}")
             pass
         
         return env_data
@@ -1997,13 +2032,14 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                     agent_json = AgentJson(path)
                     linear = agent_json.data['links']['linear']
                     pr = agent_json.data['links']['pr']
-                    
+
                     print(f"{path} [{branch}]")
                     if linear:
                         print(f"  Linear: {linear}")
                     if pr:
                         print(f"  PR: {pr}")
-                except:
+                except (json.JSONDecodeError, KeyError, IOError) as e:
+                    logger.debug(f"Error reading agent.json for {path}: {e}")
                     print(f"{path} [{branch}]")
             else:
                 print(f"{path} [{branch}]")
@@ -2074,7 +2110,8 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                         )
                         age_days = (datetime.now(timezone.utc) - created_at).days
                         age_info = f" ({age_days} days old)"
-                    except:
+                    except (json.JSONDecodeError, KeyError, ValueError) as e:
+                        logger.debug(f"Error parsing date for {path}: {e}")
                         pass
                 
                 print(f"  - {path.name} [{branch}]{age_info}")
@@ -2116,7 +2153,8 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                                 )
                                 age_days = (datetime.now(timezone.utc) - created_at).days
                                 age_info = f" ({age_days} days old)"
-                            except:
+                            except (json.JSONDecodeError, KeyError, ValueError) as e:
+                                logger.debug(f"Error parsing date for {path}: {e}")
                                 pass
                         
                         # Check if this is the current worktree
@@ -2220,7 +2258,8 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                         age_days = (datetime.now(timezone.utc) - created_at).days
                         if age_days > args.older_than:
                             should_remove = True
-                    except:
+                    except (json.JSONDecodeError, KeyError, ValueError) as e:
+                        logger.debug(f"Error parsing date for {path}: {e}")
                         pass
             
             # Check for newer than (opposite logic)
@@ -2242,9 +2281,16 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                         logger.debug(f"Error processing {path.name}: {e}")
                         pass
             
-            # Check if merged (simplified check)
-            if args.merged_only and 'closed_at' in agent_json_path.read_text() if agent_json_path.exists() else False:
-                should_remove = True
+            # Check if merged (proper JSON parsing)
+            if args.merged_only and agent_json_path.exists():
+                try:
+                    agent_data = json.loads(agent_json_path.read_text())
+                    if 'closed_at' in agent_data.get('workspace', {}):
+                        should_remove = True
+                        logger.debug(f"Marking {path.name} for removal (marked as closed)")
+                except (json.JSONDecodeError, KeyError) as e:
+                    logger.debug(f"Error parsing agent.json for merged check in {path.name}: {e}")
+                    pass
             
             if should_remove:
                 logger.debug(f"Adding {path.name} to removal list")
@@ -2313,13 +2359,34 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         if editor:
             TerminalAutomation.open_editor(worktree_path, editor)
         
-        # Open browser links
+        # Open browser links safely
         links = agent_json.data['links']
         if links['linear']:
-            subprocess.run(['open', links['linear']], check=False)
+            self._safe_open_url(links['linear'])
         if links['pr']:
-            subprocess.run(['open', links['pr']], check=False)
+            self._safe_open_url(links['pr'])
     
+    def _safe_open_url(self, url: str):
+        """Safely open a URL, validating it first to prevent command injection"""
+        if url is None:
+            logger.warning("Cannot open None URL")
+            return
+
+        try:
+            # Check for shell metacharacters that could be used for injection
+            dangerous_chars = [';', '&', '|', '`', '$', "'", '"', '\\', '\n', '\r']
+            if any(char in url for char in dangerous_chars):
+                logger.warning(f"Refusing to open URL with dangerous characters: {url}")
+                return
+
+            parsed = urllib.parse.urlparse(url)
+            if parsed.scheme in ('http', 'https') and parsed.netloc:
+                subprocess.run(['open', url], check=False)
+            else:
+                logger.warning(f"Refusing to open potentially unsafe URL: {url}")
+        except Exception as e:
+            logger.error(f"Error opening URL {url}: {e}")
+
     def cmd_config(self, args):
         """Configuration management"""
         if not args.key:
