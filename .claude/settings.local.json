@@ -4,8 +4,11 @@
       "Bash(chmod:*)",
       "Bash(git push:*)",
       "Bash(git add:*)",
+      "Bash(uv run pytest:*)",
       "Bash(pytest:*)",
-      "Bash(python -m pytest:*)"
+      "Bash(python -m pytest:*)",
+      "Bash(gh run list:*)",
+      "Bash(gh run view:*)"
     ],
     "deny": [],
     "ask": []

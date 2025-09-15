@@ -266,7 +266,13 @@ class GitWorktree:
         if force:
             cmd.append('--force')
         cmd.append(str(worktree_path))
-        self._run_git(cmd)
+        try:
+            self._run_git(cmd, capture_output=True, text=True)
+        except subprocess.CalledProcessError as e:
+            error_msg = str(e.stderr) if e.stderr else str(e)
+            if 'is dirty' in error_msg or 'contains modified' in error_msg:
+                raise CprojError(f"Worktree is dirty. Use force=True to remove anyway")
+            raise CprojError(f"Failed to remove worktree: {error_msg}")
     
     def list_worktrees(self) -> List[Dict]:
         """List all worktrees"""

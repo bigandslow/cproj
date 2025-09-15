@@ -92,8 +92,8 @@ class TestGitIntegration:
         worktrees = git.list_worktrees()
         assert len(worktrees) >= 2  # Main repo + our worktree
 
-        worktree_paths = [wt.get('worktree', '') for wt in worktrees]
-        assert str(worktree_path) in worktree_paths
+        worktree_paths = [Path(wt.get('path', '')).resolve() for wt in worktrees if wt.get('path')]
+        assert worktree_path.resolve() in worktree_paths
 
         # Test worktree removal
         git.remove_worktree(worktree_path)

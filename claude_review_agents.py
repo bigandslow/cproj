@@ -4,13 +4,13 @@ Claude-based review agents for cproj
 Professional-grade code review system using Claude's Task tool
 
 This module provides three specialized AI agents for comprehensive PR review:
-1. Senior Developer Agent - Code quality, architecture, best practices  
+1. Senior Developer Agent - Code quality, architecture, best practices
 2. QA Engineer Agent - Test coverage, quality assurance, edge cases
 3. Security Review Agent - Vulnerability assessment, OWASP compliance
 
 Security Features:
 - Input validation and sanitization for all user-provided data
-- Path traversal protection for file operations  
+- Path traversal protection for file operations
 - Subprocess timeout and safe argument passing
 - Template injection prevention using safe substitution
 - JSON deserialization with size limits
@@ -18,54 +18,55 @@ Security Features:
 Usage:
     python claude_review_agents.py --setup
     # Creates .cproj/.cproj_review.json with agent configurations
-    
+
     cproj review agents
     # Ready for Claude Task tool execution
 """
 
 import json
 import logging
-import os
 import re
 import subprocess
 import sys
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
+from datetime import datetime
 from pathlib import Path
 from string import Template
-from typing import Dict, List, Optional, Tuple, Any
-from datetime import datetime
+from typing import Any, Dict, List, Optional
 
 
 def _sanitize_pii_for_logging(message: str) -> str:
     """Sanitize potentially sensitive information from log messages.
-    
+
     Args:
         message: Log message that may contain PII
-        
+
     Returns:
         Sanitized message with PII redacted
     """
     if not isinstance(message, str):
         message = str(message)
-    
+
     # Email addresses
-    message = re.sub(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', '[EMAIL_REDACTED]', message)
-    
+    message = re.sub(
+        r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b", "[EMAIL_REDACTED]", message
+    )
+
     # API keys/tokens (common patterns)
-    message = re.sub(r'\b[A-Za-z0-9]{32,}\b', '[TOKEN_REDACTED]', message)
-    message = re.sub(r'\bsk-[A-Za-z0-9]{48,}\b', '[API_KEY_REDACTED]', message)
-    message = re.sub(r'\bghp_[A-Za-z0-9]{36}\b', '[GITHUB_TOKEN_REDACTED]', message)
-    
+    message = re.sub(r"\b[A-Za-z0-9]{32,}\b", "[TOKEN_REDACTED]", message)
+    message = re.sub(r"\bsk-[A-Za-z0-9]{48,}\b", "[API_KEY_REDACTED]", message)
+    message = re.sub(r"\bghp_[A-Za-z0-9]{36}\b", "[GITHUB_TOKEN_REDACTED]", message)
+
     # URLs with potential sensitive tokens
-    message = re.sub(r'https?://[^\s]*token=[^\s&]*', 'https://[URL_WITH_TOKEN_REDACTED]', message)
-    
+    message = re.sub(r"https?://[^\s]*token=[^\s&]*", "https://[URL_WITH_TOKEN_REDACTED]", message)
+
     # File paths that might contain usernames
-    message = re.sub(r'/Users/[^/\s]+', '/Users/[USER_REDACTED]', message)
-    message = re.sub(r'/home/[^/\s]+', '/home/[USER_REDACTED]', message)
-    
+    message = re.sub(r"/Users/[^/\s]+", "/Users/[USER_REDACTED]", message)
+    message = re.sub(r"/home/[^/\s]+", "/home/[USER_REDACTED]", message)
+
     # IP addresses (basic pattern)
-    message = re.sub(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b', '[IP_REDACTED]', message)
-    
+    message = re.sub(r"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b", "[IP_REDACTED]", message)
+
     return message
 
 
@@ -299,6 +300,7 @@ Return **only** this JSON:
 @dataclass
 class ProjectContext:
     """Project-specific context for review agents"""
+
     pr_title: str = ""
     pr_desc: str = ""
     ticket: str = ""
@@ -318,12 +320,12 @@ class ProjectContext:
 
 class ClaudeReviewOrchestrator:
     """Orchestrates Claude-based review agents.
-    
+
     Args:
         worktree_path: Path to the git worktree to review
         context: Optional project context for customization
     """
-    
+
     def __init__(self, worktree_path: Path, context: Optional[ProjectContext] = None):
         self.worktree_path = self._validate_worktree_path(worktree_path)
         self.context = context or ProjectContext()
@@ -332,129 +334,129 @@ class ClaudeReviewOrchestrator:
             self.load_project_context()
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
             logging.debug(_sanitize_pii_for_logging(f"Could not fully load project context: {e}"))
-    
+
     def _validate_worktree_path(self, path: Path) -> Path:
         """Validate worktree path is safe and contains a git repository.
-        
+
         Args:
             path: The path to validate
-            
+
         Returns:
             Resolved and validated path
-            
+
         Raises:
             ValueError: If path is invalid or unsafe
         """
         try:
             # Check for path traversal patterns FIRST before resolving
-            if '..' in str(path) or str(path.resolve()).count('/') > 20:
+            if ".." in str(path) or str(path.resolve()).count("/") > 20:
                 raise ValueError(f"Potentially unsafe path: {path}")
-            
+
             resolved = path.resolve()
-            
+
             # Check if path exists and is a directory
             if not resolved.exists() or not resolved.is_dir():
                 raise ValueError(f"Path does not exist or is not a directory: {resolved}")
-            
+
             # Check if it's a git repository (has .git directory or file)
-            if not (resolved / '.git').exists():
+            if not (resolved / ".git").exists():
                 raise ValueError(f"Not a git repository: {resolved}")
-                
+
             return resolved
         except (OSError, RuntimeError) as e:
             raise ValueError(f"Invalid worktree path {path}: {e}")
-    
+
     def _safe_path_join(self, base: Path, filename: str) -> Path:
         """Safely join paths preventing directory traversal.
-        
+
         Args:
             base: Base directory path
             filename: Filename to join (must not contain path separators)
-            
+
         Returns:
             Safe joined path
-            
+
         Raises:
             ValueError: If filename contains unsafe characters
         """
         # Prevent directory traversal
-        if '..' in filename or '/' in filename or '\\' in filename:
+        if ".." in filename or "/" in filename or "\\" in filename:
             raise ValueError(f"Unsafe filename: {filename}")
-        
-        if filename.startswith('.') and filename not in ['.agent.json', '.git', '.env']:
+
+        if filename.startswith(".") and filename not in [".agent.json", ".git", ".env"]:
             raise ValueError(f"Suspicious filename: {filename}")
-        
+
         result = (base / filename).resolve()
-        
+
         # Ensure result is within base directory
         try:
             result.relative_to(base.resolve())
         except ValueError:
             raise ValueError(f"Path traversal detected: {result}")
-        
+
         return result
-    
+
     def load_project_context(self):
         """Load project context from various sources with secure file handling."""
         # Load from .agent.json if available
         try:
-            agent_json_path = self._safe_path_join(self.worktree_path, '.agent.json')
+            agent_json_path = self._safe_path_join(self.worktree_path, ".agent.json")
             if agent_json_path.exists():
-                with open(agent_json_path, 'r', encoding='utf-8') as f:
+                with open(agent_json_path, encoding="utf-8") as f:
                     agent_data = json.load(f)
-                    if 'links' in agent_data and agent_data['links'].get('linear'):
+                    if "links" in agent_data and agent_data["links"].get("linear"):
                         self.context.ticket = f"Linear: {agent_data['links']['linear']}"
         except (ValueError, OSError, json.JSONDecodeError) as e:
             logging.debug(_sanitize_pii_for_logging(f"Could not load .agent.json: {e}"))
-        
+
         # Load from git commit messages with timeout
         try:
             result = subprocess.run(
-                ['git', 'log', '--oneline', '-10'],
+                ["git", "log", "--oneline", "-10"],
                 cwd=self.worktree_path,
                 capture_output=True,
                 text=True,
                 timeout=10,
-                check=False
+                check=False,
             )
             if result.returncode == 0 and result.stdout.strip():
                 commits = result.stdout.strip()
                 self.context.pr_desc = f"Recent commits:\n{commits}"
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
             logging.debug(_sanitize_pii_for_logging(f"Could not load git commits: {e}"))
-        
+
         # Get branch name for PR title with timeout
         try:
             result = subprocess.run(
-                ['git', 'branch', '--show-current'],
+                ["git", "branch", "--show-current"],
                 cwd=self.worktree_path,
                 capture_output=True,
                 text=True,
                 timeout=5,
-                check=False
+                check=False,
             )
             if result.returncode == 0 and result.stdout.strip():
                 branch = result.stdout.strip()
                 if not self.context.pr_title:
                     # Sanitize branch name for title
-                    safe_branch = ''.join(c for c in branch if c.isalnum() or c in '-_ ')
-                    self.context.pr_title = safe_branch.replace('-', ' ').replace('_', ' ').title()
+                    safe_branch = "".join(c for c in branch if c.isalnum() or c in "-_ ")
+                    self.context.pr_title = safe_branch.replace("-", " ").replace("_", " ").title()
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
             logging.debug(_sanitize_pii_for_logging(f"Could not load git branch: {e}"))
-    
+
     def get_diff(self) -> str:
         """Get git diff for review with secure subprocess handling.
-        
+
         Returns:
             Git diff output as string, empty if no changes or on error
         """
         # Try multiple diff strategies with timeouts and proper error handling
         diff_strategies = [
-            (['git', 'diff', 'origin/main...HEAD'], "diff vs origin/main"),
-            (['git', 'diff', '--cached'], "staged changes"),
-            (['git', 'diff'], "unstaged changes")
+            (["git", "diff", "origin/main...HEAD"], "diff vs origin/main"),
+            (["git", "diff", "--cached"], "staged changes"),
+            (["git", "diff"], "unstaged changes"),
         ]
-        
+
         for cmd, description in diff_strategies:
             try:
                 result = subprocess.run(
@@ -463,119 +465,123 @@ class ClaudeReviewOrchestrator:
                     capture_output=True,
                     text=True,
                     timeout=30,
-                    check=False
+                    check=False,
                 )
                 if result.returncode == 0 and result.stdout.strip():
                     return result.stdout
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
                 logging.debug(_sanitize_pii_for_logging(f"Git {description} failed: {e}"))
                 continue
-        
+
         # If all strategies failed, log and return empty
         logging.warning(_sanitize_pii_for_logging("No git diff available from any strategy"))
         return ""
-    
+
     def _sanitize_context_value(self, value: str, max_length: int = 1000) -> str:
         """Sanitize context values for safe template usage.
-        
+
         Args:
             value: The value to sanitize
             max_length: Maximum allowed length
-            
+
         Returns:
             Sanitized value safe for template substitution
         """
         if not isinstance(value, str):
             value = str(value)
-        
+
         # Remove dangerous shell and template injection characters
         # Specifically remove: $, `, &, |, ;, (, ), {, }, <, >, \, and other shell metacharacters
-        dangerous_chars = '$`&|;()<>{}\\'
-        safe_value = ''.join(c for c in value if c not in dangerous_chars)
-        
+        dangerous_chars = "$`&|;()<>{}\\"
+        safe_value = "".join(c for c in value if c not in dangerous_chars)
+
         # Keep only alphanumeric, safe punctuation, and whitespace
-        safe_value = ''.join(c for c in safe_value if c.isalnum() or c in ' .,;:!?-_()[]/@#%^*+=~"|\n\t')
-        
+        safe_value = "".join(
+            c for c in safe_value if c.isalnum() or c in ' .,;:!?-_()[]/@#%^*+=~"|\n\t'
+        )
+
         # Truncate if too long
         if len(safe_value) > max_length:
             safe_value = safe_value[:max_length] + "..."
-        
+
         return safe_value
-    
+
     def format_agent_prompt(self, prompt_template: str, diff: str) -> str:
         """Format prompt with context and diff using safe template substitution.
-        
+
         Args:
             prompt_template: The prompt template string
             diff: Git diff content
-            
+
         Returns:
             Formatted prompt with sanitized context values
         """
         # Truncate diff at line boundaries to avoid breaking mid-line
         max_diff_lines = 200
-        diff_lines = diff.split('\n')
+        diff_lines = diff.split("\n")
         if len(diff_lines) > max_diff_lines:
-            diff = '\n'.join(diff_lines[:max_diff_lines]) + "\n\n[... diff truncated for length ...]"
-        
+            diff = (
+                "\n".join(diff_lines[:max_diff_lines]) + "\n\n[... diff truncated for length ...]"
+            )
+
         # Use Template for safer substitution
         template = Template(prompt_template)
-        
+
         # Sanitize all context values
         safe_context = {
-            'pr_title': self._sanitize_context_value(self.context.pr_title),
-            'pr_desc': self._sanitize_context_value(self.context.pr_desc, 2000),
-            'pr_diff': self._sanitize_context_value(diff, 10000),
-            'ticket': self._sanitize_context_value(self.context.ticket),
-            'arch_notes': self._sanitize_context_value(self.context.arch_notes),
-            'conventions': self._sanitize_context_value(self.context.conventions),
-            'non_goals': self._sanitize_context_value(self.context.non_goals),
-            'risk_profile': self._sanitize_context_value(self.context.risk_profile),
-            'stack_info': self._sanitize_context_value(self.context.stack_info),
-            'test_infra': self._sanitize_context_value(self.context.test_infra),
-            'non_func': self._sanitize_context_value(self.context.non_func),
-            'data_classification': self._sanitize_context_value(self.context.data_classification),
-            'authz_model': self._sanitize_context_value(self.context.authz_model),
-            'secrets_policy': self._sanitize_context_value(self.context.secrets_policy),
-            'compliance': self._sanitize_context_value(self.context.compliance),
-            'known_threats': self._sanitize_context_value(self.context.known_threats)
+            "pr_title": self._sanitize_context_value(self.context.pr_title),
+            "pr_desc": self._sanitize_context_value(self.context.pr_desc, 2000),
+            "pr_diff": self._sanitize_context_value(diff, 10000),
+            "ticket": self._sanitize_context_value(self.context.ticket),
+            "arch_notes": self._sanitize_context_value(self.context.arch_notes),
+            "conventions": self._sanitize_context_value(self.context.conventions),
+            "non_goals": self._sanitize_context_value(self.context.non_goals),
+            "risk_profile": self._sanitize_context_value(self.context.risk_profile),
+            "stack_info": self._sanitize_context_value(self.context.stack_info),
+            "test_infra": self._sanitize_context_value(self.context.test_infra),
+            "non_func": self._sanitize_context_value(self.context.non_func),
+            "data_classification": self._sanitize_context_value(self.context.data_classification),
+            "authz_model": self._sanitize_context_value(self.context.authz_model),
+            "secrets_policy": self._sanitize_context_value(self.context.secrets_policy),
+            "compliance": self._sanitize_context_value(self.context.compliance),
+            "known_threats": self._sanitize_context_value(self.context.known_threats),
         }
-        
+
         try:
             return template.safe_substitute(**safe_context)
         except (KeyError, ValueError) as e:
-            logging.error(_sanitize_pii_for_logging(f"Template substitution failed: {e}"))
+            logging.exception(_sanitize_pii_for_logging(f"Template substitution failed: {e}"))
             return prompt_template  # Return original template if substitution fails
-    
+
     def create_agent_configs(self) -> List[Dict[str, Any]]:
         """Create configuration for each review agent"""
         diff = self.get_diff()
         if not diff:
             return []
-        
+
         agents = [
             {
                 "name": "Senior Developer Code Review",
                 "type": "code-review",
                 "prompt": self.format_agent_prompt(CODE_REVIEW_AGENT_PROMPT, diff),
-                "description": "Comprehensive code review focusing on correctness, maintainability, and best practices"
+                "description": "Comprehensive code review focusing on correctness, maintainability, and best practices",
             },
             {
                 "name": "QA Engineer Review",
                 "type": "qa-review",
                 "prompt": self.format_agent_prompt(QA_ENGINEER_PROMPT, diff),
-                "description": "Test coverage analysis and quality assurance review"
+                "description": "Test coverage analysis and quality assurance review",
             },
             {
                 "name": "Security Review",
                 "type": "security-review",
                 "prompt": self.format_agent_prompt(SECURITY_REVIEW_PROMPT, diff),
-                "description": "Security vulnerability assessment and threat analysis"
-            }
+                "description": "Security vulnerability assessment and threat analysis",
+            },
         ]
-        
+
         return agents
-    
+
     def save_review_config(self) -> Path:
         """Save review configuration for Claude to use"""
         config = {
@@ -583,18 +589,18 @@ class ClaudeReviewOrchestrator:
             "worktree": str(self.worktree_path),
             "context": asdict(self.context),
             "agents": self.create_agent_configs(),
-            "instructions": self.get_claude_instructions()
+            "instructions": self.get_claude_instructions(),
         }
-        
+
         # Ensure .cproj directory exists
-        cproj_dir = self.worktree_path / '.cproj'
+        cproj_dir = self.worktree_path / ".cproj"
         cproj_dir.mkdir(exist_ok=True)
-        config_path = cproj_dir / '.cproj_review.json'
-        with open(config_path, 'w') as f:
+        config_path = cproj_dir / ".cproj_review.json"
+        with open(config_path, "w") as f:
             json.dump(config, f, indent=2)
-        
+
         return config_path
-    
+
     def get_claude_instructions(self) -> str:
         """Get instructions for Claude to run the review"""
         return """
@@ -629,7 +635,7 @@ After all agents complete:
 
 The review passes only if there are no CRITICAL findings.
 """
-    
+
     def format_console_report(self, results: List[Dict]) -> str:
         """Format a console-friendly review report"""
         report = []
@@ -637,67 +643,64 @@ The review passes only if there are no CRITICAL findings.
         report.append("📋 AUTOMATED PR REVIEW REPORT")
         report.append("=" * 60)
         report.append("")
-        
+
         # Aggregate findings
         all_findings = []
         for agent_result in results:
-            if 'findings' in agent_result:
-                for finding in agent_result['findings']:
-                    finding['agent'] = agent_result.get('agent_name', 'Unknown')
+            if "findings" in agent_result:
+                for finding in agent_result["findings"]:
+                    finding["agent"] = agent_result.get("agent_name", "Unknown")
                     all_findings.append(finding)
-        
+
         # Count by severity
-        severity_counts = {
-            'critical': 0,
-            'high': 0,
-            'medium': 0,
-            'low': 0
-        }
-        
+        severity_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+
         for finding in all_findings:
-            severity = finding.get('severity', 'low').lower()
+            severity = finding.get("severity", "low").lower()
             if severity in severity_counts:
                 severity_counts[severity] += 1
-        
+
         # Summary
         report.append("📊 Summary:")
         report.append(f"   Total findings: {len(all_findings)}")
-        if severity_counts['critical'] > 0:
+        if severity_counts["critical"] > 0:
             report.append(f"   🔴 Critical: {severity_counts['critical']}")
-        if severity_counts['high'] > 0:
+        if severity_counts["high"] > 0:
             report.append(f"   🟠 High: {severity_counts['high']}")
-        if severity_counts['medium'] > 0:
+        if severity_counts["medium"] > 0:
             report.append(f"   🟡 Medium: {severity_counts['medium']}")
-        if severity_counts['low'] > 0:
+        if severity_counts["low"] > 0:
             report.append(f"   🔵 Low: {severity_counts['low']}")
-        
+
         # Detailed findings
         if all_findings:
             report.append("")
             report.append("📝 Findings:")
-            
-            for severity in ['critical', 'high', 'medium', 'low']:
-                findings = [f for f in all_findings if f.get('severity', '').lower() == severity]
+
+            for severity in ["critical", "high", "medium", "low"]:
+                findings = [f for f in all_findings if f.get("severity", "").lower() == severity]
                 if findings:
                     report.append("")
                     report.append(f"{severity.upper()}:")
                     for finding in findings:
-                        report.append(f"  • [{finding['agent']}] {finding.get('title', finding.get('message', 'No description'))}")
-                        if finding.get('file'):
-                            line_info = f":{finding['line']}" if finding.get('line') else ""
+                        report.append(
+                            f"  • [{finding['agent']}] {finding.get('title', finding.get('message', 'No description'))}"
+                        )
+                        if finding.get("file"):
+                            line_info = f":{finding['line']}" if finding.get("line") else ""
                             report.append(f"    File: {finding['file']}{line_info}")
-                        if finding.get('recommendation'):
+                        if finding.get("recommendation"):
                             report.append(f"    💡 {finding['recommendation']}")
-        
+
         # Verdict
         report.append("")
         report.append("=" * 60)
-        if severity_counts['critical'] > 0:
+        if severity_counts["critical"] > 0:
             report.append("❌ Review FAILED - Critical issues must be resolved")
         else:
             report.append("✅ Review PASSED - Ready for PR submission")
         report.append("=" * 60)
-        
+
         return "\n".join(report)
 
 
@@ -705,98 +708,104 @@ def setup_review(worktree_path: Path, context: Optional[ProjectContext] = None) 
     """Setup review configuration for Claude"""
     orchestrator = ClaudeReviewOrchestrator(worktree_path, context)
     config_path = orchestrator.save_review_config()
-    
+
     return {
         "status": "ready",
         "config_path": str(config_path),
         "agents": len(orchestrator.create_agent_configs()),
         "diff_size": len(orchestrator.get_diff()),
-        "instructions": orchestrator.get_claude_instructions()
+        "instructions": orchestrator.get_claude_instructions(),
     }
 
 
 def safe_json_loads(data: str, max_nested_depth: int = 10, max_nested_objects: int = 100) -> dict:
     """Safely parse JSON with size and content validation.
-    
+
     Args:
         data: JSON string to parse
-        max_nested_depth: Maximum nesting depth allowed  
+        max_nested_depth: Maximum nesting depth allowed
         max_nested_objects: Maximum total nested objects allowed
-        
+
     Returns:
         Parsed JSON data
-        
+
     Raises:
         ValueError: If JSON is invalid or too large
     """
     if not isinstance(data, str):
         raise ValueError("JSON input must be a string")
-    
+
     if len(data) > 10000:  # 10KB limit
         raise ValueError("JSON input too large (max 10KB)")
-    
+
     try:
         parsed = json.loads(data)
         if not isinstance(parsed, dict):
             raise ValueError("JSON input must be an object")
-        
+
         # Validate nested structure to prevent DoS attacks
         _validate_json_structure(parsed, max_nested_depth, max_nested_objects)
-        
+
         return parsed
     except json.JSONDecodeError as e:
         raise ValueError(f"Invalid JSON: {e}")
 
 
-def _validate_json_structure(obj: Any, max_depth: int, max_objects: int, current_depth: int = 0, object_count: int = 0) -> int:
+def _validate_json_structure(
+    obj: Any, max_depth: int, max_objects: int, current_depth: int = 0, object_count: int = 0
+) -> int:
     """Recursively validate JSON structure depth and object count.
-    
+
     Args:
         obj: Object to validate
         max_depth: Maximum allowed nesting depth
         max_objects: Maximum total objects allowed
         current_depth: Current nesting depth
         object_count: Running count of objects processed
-        
+
     Returns:
         Updated object count
-        
+
     Raises:
         ValueError: If structure is too deep or contains too many objects
     """
     if current_depth > max_depth:
         raise ValueError(f"JSON nesting too deep (max {max_depth} levels)")
-    
+
     if object_count > max_objects:
         raise ValueError(f"JSON contains too many objects (max {max_objects})")
-    
+
     if isinstance(obj, dict):
         object_count += 1
         if object_count > max_objects:
             raise ValueError(f"JSON contains too many objects (max {max_objects})")
-        
+
         for value in obj.values():
-            object_count = _validate_json_structure(value, max_depth, max_objects, current_depth + 1, object_count)
-    
+            object_count = _validate_json_structure(
+                value, max_depth, max_objects, current_depth + 1, object_count
+            )
+
     elif isinstance(obj, list):
         if len(obj) > 1000:  # Limit array size
             raise ValueError("JSON array too large (max 1000 items)")
-        
+
         for item in obj:
-            object_count = _validate_json_structure(item, max_depth, max_objects, current_depth + 1, object_count)
-    
+            object_count = _validate_json_structure(
+                item, max_depth, max_objects, current_depth + 1, object_count
+            )
+
     return object_count
 
 
 def main():
     """CLI entry point with input validation"""
     import argparse
-    
+
     parser = argparse.ArgumentParser(description="Claude-based PR review system")
     parser.add_argument("path", nargs="?", default=".", help="Worktree path")
     parser.add_argument("--setup", action="store_true", help="Setup review configuration")
     parser.add_argument("--context", type=safe_json_loads, help="JSON context overrides")
-    
+
     try:
         args = parser.parse_args()
     except SystemExit:
@@ -804,17 +813,17 @@ def main():
     except Exception as e:
         print(f"Error parsing arguments: {e}", file=sys.stderr)
         sys.exit(1)
-    
+
     try:
         worktree_path = Path(args.path).absolute()
     except (OSError, ValueError) as e:
         print(f"Error: Invalid path '{args.path}': {e}", file=sys.stderr)
         sys.exit(1)
-    
+
     if not (worktree_path / ".git").exists():
         print("Error: Not in a git repository", file=sys.stderr)
         sys.exit(1)
-    
+
     # Load context with validation
     context = ProjectContext()
     if args.context:
@@ -824,7 +833,7 @@ def main():
                 setattr(context, key, value)
             else:
                 print(f"Warning: Ignoring invalid context field '{key}'", file=sys.stderr)
-    
+
     if args.setup:
         try:
             result = setup_review(worktree_path, context)
