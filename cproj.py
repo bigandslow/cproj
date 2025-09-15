@@ -973,14 +973,8 @@ class CprojCLI:
     def __init__(self):
         self.config = Config()
 
-    def _prompt_for_config(self) -> Dict:
-        """Interactive configuration prompting"""
-        print("🚀 Welcome to cproj! Let's set up your configuration.")
-        print()
-
-        config = {}
-
-        # Project identity
+    def _prompt_project_identity(self, config: Dict) -> None:
+        """Prompt for project identity configuration"""
         print("📁 Project Identity")
         print("-" * 50)
 
@@ -998,8 +992,8 @@ class CprojCLI:
                 print(f"Found git repository root at: {repo_path}")
         elif repo_input.startswith("http"):
             # It's a URL, we'll clone it
-            clone_to = input(f"Clone to directory [{Path.home() / 'dev' / project_name}]: ").strip()
-            repo_path = Path(clone_to) if clone_to else (Path.home() / "dev" / project_name)
+            clone_to = input(f"Clone to directory [{Path.home() / 'dev' / config['project_name']}]: ").strip()
+            repo_path = Path(clone_to) if clone_to else (Path.home() / "dev" / config['project_name'])
             config["clone_url"] = repo_input
         else:
             repo_path = Path(repo_input).expanduser().absolute()
@@ -1017,7 +1011,8 @@ class CprojCLI:
 
         print()
 
-        # Workspace policy
+    def _prompt_workspace_policy(self, config: Dict) -> None:
+        """Prompt for workspace policy configuration"""
         print("🏗️  Workspace Policy")
         print("-" * 50)
 
@@ -1036,7 +1031,8 @@ class CprojCLI:
 
         print()
 
-        # Environment setup
+    def _prompt_environment_setup(self, config: Dict) -> None:
+        """Prompt for environment setup configuration"""
         print("🐍 Environment Setup")
         print("-" * 50)
 
@@ -1057,7 +1053,8 @@ class CprojCLI:
 
         print()
 
-        # Tools
+    def _prompt_tools_automation(self, config: Dict) -> None:
+        """Prompt for tools and automation configuration"""
         print("🛠️  Tools & Automation")
         print("-" * 50)
 
@@ -1077,7 +1074,8 @@ class CprojCLI:
 
         print()
 
-        # Integrations
+    def _prompt_integrations(self, config: Dict) -> None:
+        """Prompt for integrations configuration"""
         print("🔗 Integrations")
         print("-" * 50)
 
@@ -1121,7 +1119,8 @@ class CprojCLI:
 
         print()
 
-        # Claude IDE integration
+    def _prompt_claude_integration(self, config: Dict) -> None:
+        """Prompt for Claude IDE integration configuration"""
         print("🤖 Claude IDE Integration")
         print("-" * 50)
 
@@ -1138,7 +1137,8 @@ class CprojCLI:
 
         print()
 
-        # 1Password integration
+    def _prompt_onepassword_integration(self, config: Dict) -> None:
+        """Prompt for 1Password integration configuration"""
         if OnePasswordIntegration.is_available():
             print("🔐 1Password Integration")
             print("-" * 50)
@@ -1153,7 +1153,8 @@ class CprojCLI:
 
             print()
 
-        # Summary
+    def _show_config_summary(self, config: Dict) -> None:
+        """Show configuration summary"""
         print("✅ Configuration Summary")
         print("-" * 50)
         print(f"Project: {config['project_name']}")
@@ -1172,6 +1173,25 @@ class CprojCLI:
 
         print()
 
+    def _prompt_for_config(self) -> Dict:
+        """Interactive configuration prompting"""
+        print("🚀 Welcome to cproj! Let's set up your configuration.")
+        print()
+
+        config = {}
+
+        # Call helper methods for each section
+        self._prompt_project_identity(config)
+        self._prompt_workspace_policy(config)
+        self._prompt_environment_setup(config)
+        self._prompt_tools_automation(config)
+        self._prompt_integrations(config)
+        self._prompt_claude_integration(config)
+        self._prompt_onepassword_integration(config)
+
+        # Summary and confirmation
+        self._show_config_summary(config)
+
         confirm = input("Save this configuration? [Y/n]: ").strip().lower()
         if confirm in ["n", "no"]:
             print("Configuration cancelled.")
@@ -1182,6 +1202,24 @@ class CprojCLI:
     def create_parser(self) -> argparse.ArgumentParser:
         """Create argument parser"""
         parser = argparse.ArgumentParser(description="Multi-project CLI with git worktree + uv")
+
+        # Add global arguments
+        self._add_global_arguments(parser)
+
+        # Create subparsers and add commands
+        subparsers = parser.add_subparsers(dest="command", help="Commands")
+        self._add_init_command(subparsers)
+        self._add_worktree_commands(subparsers)
+        self._add_review_commands(subparsers)
+        self._add_merge_command(subparsers)
+        self._add_basic_commands(subparsers)
+        self._add_config_commands(subparsers)
+        self._add_linear_commands(subparsers)
+
+        return parser
+
+    def _add_global_arguments(self, parser: argparse.ArgumentParser):
+        """Add global command-line arguments"""
         parser.add_argument("--repo", help="Repository path")
         parser.add_argument("--base", help="Base branch")
         parser.add_argument("--temp-root", help="Temp root for worktrees")
@@ -1197,14 +1235,14 @@ class CprojCLI:
             help="Set logging level (default: INFO)",
         )
 
-        subparsers = parser.add_subparsers(dest="command", help="Commands")
-
-        # init command
+    def _add_init_command(self, subparsers):
+        """Add init command"""
         init_parser = subparsers.add_parser("init", aliases=["new", "start"], help="Initialize project")
         init_parser.add_argument("--name", help="Project name")
         init_parser.add_argument("--clone", help="Clone URL if repo not local")
 
-        # worktree create command
+    def _add_worktree_commands(self, subparsers):
+        """Add worktree commands"""
         wt_create = subparsers.add_parser("worktree", aliases=["w"], help="Worktree commands")
         wt_sub = wt_create.add_subparsers(dest="worktree_command")
 
@@ -1229,7 +1267,8 @@ class CprojCLI:
         create_parser.add_argument("--setup-claude", action="store_true", help="Force setup Claude workspace")
         create_parser.add_argument("--no-claude", action="store_true", help="Skip Claude workspace setup")
 
-        # review command
+    def _add_review_commands(self, subparsers):
+        """Add review commands"""
         review_parser = subparsers.add_parser("review", help="Review commands")
         review_sub = review_parser.add_subparsers(dest="review_command")
 
@@ -1240,11 +1279,8 @@ class CprojCLI:
         open_parser.add_argument("--no-push", action="store_true", help="Don't push branch")
         open_parser.add_argument("--no-agents", action="store_true", help="Skip automated review agents")
 
-        # Legacy 'cproj review agents' removed in favor of 'review-code' command
-        # Migration: Use 'review-code' for AI-powered code reviews with enhanced security
-        # The new system provides better input validation and safer execution
-
-        # merge command
+    def _add_merge_command(self, subparsers):
+        """Add merge command"""
         merge_parser = subparsers.add_parser("merge", help="Merge and cleanup")
         merge_parser.add_argument("--squash", action="store_true", default=True, help="Squash merge")
         merge_parser.add_argument("--merge", dest="squash", action="store_false", help="Merge commit")
@@ -1252,6 +1288,8 @@ class CprojCLI:
         merge_parser.add_argument("--keep-worktree", action="store_true", help="Keep worktree")
         merge_parser.add_argument("--force", action="store_true", help="Force merge even if dirty")
 
+    def _add_basic_commands(self, subparsers):
+        """Add basic commands (list, status, cleanup, open)"""
         # list command
         subparsers.add_parser("list", aliases=["ls"], help="List worktrees")
 
@@ -1270,12 +1308,14 @@ class CprojCLI:
         open_parser = subparsers.add_parser("open", help="Open workspace")
         open_parser.add_argument("path", nargs="?", help="Worktree path")
 
-        # config command
+    def _add_config_commands(self, subparsers):
+        """Add config command"""
         config_parser = subparsers.add_parser("config", help="Configuration")
         config_parser.add_argument("key", nargs="?", help="Config key")
         config_parser.add_argument("value", nargs="?", help="Config value")
 
-        # linear config command
+    def _add_linear_commands(self, subparsers):
+        """Add Linear integration commands"""
         linear_parser = subparsers.add_parser("linear", help="Linear integration management")
         linear_sub = linear_parser.add_subparsers(dest="linear_command")
 
@@ -1292,8 +1332,6 @@ class CprojCLI:
 
         linear_sub.add_parser("test", help="Test Linear integration")
         linear_sub.add_parser("status", help="Show Linear configuration status")
-
-        return parser
 
     def run(self, args: Optional[List[str]] = None):
         """Main entry point"""
@@ -1535,8 +1573,12 @@ class CprojCLI:
             except OSError as e:
                 print(f"⚠️  Failed to create .cursorrules symlink: {e}")
 
-    def _setup_nvm_for_claude(self, worktree_path: Path, node_env: Dict):
+    def _setup_nvm_for_claude(self, worktree_path: Path, node_env: Dict, args=None):
         """Setup nvm and create a script to automatically use LTS for Claude CLI"""
+        # Skip if no_env is set
+        if args and hasattr(args, "no_env") and args.no_env:
+            return
+
         # Check if nvm is available on the system (regardless of project setup)
         nvm_path = Path.home() / ".nvm" / "nvm.sh"
         if not nvm_path.exists():
@@ -1594,21 +1636,40 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
 
     def _setup_claude_workspace(self, worktree_path: Path, repo_path: Path, args=None):
         """Setup Claude workspace configuration with commands and agents"""
+        # Validate setup requirements and get paths
+        cproj_claude_dir, project_claude_dir = self._validate_claude_setup(repo_path, args)
+        if not cproj_claude_dir:
+            return
+
+        # Determine if workspace should be set up
+        setup_workspace = self._should_setup_claude_workspace(args)
+
+        if setup_workspace:
+            self._execute_claude_workspace_setup(worktree_path, repo_path, cproj_claude_dir, project_claude_dir)
+
+    def _validate_claude_setup(self, repo_path: Path, args):
+        """Validate Claude setup requirements and return directory paths"""
         # Get cproj's Claude templates
         cproj_root = Path(__file__).parent
         cproj_claude_dir = cproj_root / ".claude"
-
-        # Check target project's .claude directory
         project_claude_dir = repo_path / ".claude"
 
         # Need at least cproj templates to proceed
         if not cproj_claude_dir.exists():
-            return
+            return None, None
 
         # Handle explicit command-line flags
         if args and hasattr(args, "no_claude") and args.no_claude:
-            return
+            return None, None
 
+        # Skip if no_env is set (as Claude setup is part of environment setup)
+        if args and hasattr(args, "no_env") and args.no_env:
+            return None, None
+
+        return cproj_claude_dir, project_claude_dir
+
+    def _should_setup_claude_workspace(self, args):
+        """Determine if Claude workspace should be set up"""
         # Check if we should set up Claude workspace
         default_action = self.config.get("claude_workspace_default", "yes")
         setup_workspace = default_action == "yes"
@@ -1617,7 +1678,8 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         if args and hasattr(args, "setup_claude") and args.setup_claude:
             setup_workspace = True
 
-        if self._is_interactive():
+        # Interactive prompting
+        if self._is_interactive() and not (args and hasattr(args, "no_env") and args.no_env):
             print("\n🤖 Claude Workspace Setup")
             print("Found Claude commands and agents configuration.")
 
@@ -1628,108 +1690,124 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                 response = input("Setup Claude workspace in worktree? [y/N]: ").strip().lower()
                 setup_workspace = response in ("y", "yes")
 
-        if setup_workspace:
-            print(f"🔧 Setting up Claude workspace in {worktree_path}")
-            try:
-                # Create .claude directory in worktree
-                worktree_claude_dir = worktree_path / ".claude"
-                worktree_claude_dir.mkdir(exist_ok=True)
-                print(f"Created .claude directory: {worktree_claude_dir}")
+        return setup_workspace
 
-                # Start with cproj templates as base, then merge project configs
-                for subdir in ["commands", "agents"]:
-                    cproj_source_dir = cproj_claude_dir / subdir
-                    target_dir = worktree_claude_dir / subdir
+    def _execute_claude_workspace_setup(self, worktree_path: Path, repo_path: Path, cproj_claude_dir: Path, project_claude_dir: Path):
+        """Execute the Claude workspace setup process"""
+        print(f"🔧 Setting up Claude workspace in {worktree_path}")
+        try:
+            # Create .claude directory in worktree
+            worktree_claude_dir = worktree_path / ".claude"
+            worktree_claude_dir.mkdir(exist_ok=True)
+            print(f"Created .claude directory: {worktree_claude_dir}")
 
-                    # Copy cproj templates first
-                    if cproj_source_dir.exists():
-                        if target_dir.exists():
-                            shutil.rmtree(target_dir)
-                        shutil.copytree(cproj_source_dir, target_dir)
-                        print(f"  ✅ Copied cproj {subdir} templates")
+            # Copy and merge Claude configurations
+            self._copy_claude_configurations(cproj_claude_dir, project_claude_dir, worktree_claude_dir)
 
-                    # Merge project-specific configs if they exist
-                    if project_claude_dir.exists():
-                        project_source_dir = project_claude_dir / subdir
-                        if project_source_dir.exists():
-                            # Ensure target directory exists
-                            target_dir.mkdir(exist_ok=True)
-                            # Copy project files, potentially overwriting templates
-                            for item in project_source_dir.iterdir():
-                                target_file = target_dir / item.name
-                                if item.is_file():
-                                    shutil.copy2(item, target_file)
-                                    print(f"  ✅ Merged project {item.name}")
-                                elif item.is_dir():
-                                    if target_file.exists():
-                                        shutil.rmtree(target_file)
-                                    shutil.copytree(item, target_file)
-                                    print(f"  ✅ Merged project {item.name}/")
+            # Copy MCP configuration
+            self._copy_mcp_configuration(cproj_claude_dir, project_claude_dir, worktree_claude_dir)
 
-                # Copy MCP config (prefer project over cproj template)
-                mcp_source = None
-                if project_claude_dir.exists():
-                    project_mcp = project_claude_dir / "mcp_config.json"
-                    if project_mcp.exists():
-                        mcp_source = project_mcp
-                        print("  ✅ Using project mcp_config.json")
+            # Create workspace configuration
+            self._create_workspace_configuration(worktree_claude_dir, repo_path, worktree_path)
 
-                if not mcp_source:
-                    cproj_mcp = cproj_claude_dir / "mcp_config.json"
-                    if cproj_mcp.exists():
-                        mcp_source = cproj_mcp
-                        print("  ✅ Using cproj mcp_config.json")
+            print("✅ Setup Claude workspace configuration")
+            print("💡 Available commands: add-ticket, review-code")
+            print("💡 Available agents: product-manager, ux-designer, senior-software-engineer, code-reviewer")
 
-                if mcp_source:
-                    shutil.copy2(mcp_source, worktree_claude_dir / "mcp_config.json")
+        except (OSError, shutil.Error) as e:
+            print(f"⚠️  Failed to setup Claude workspace: {e}")
 
-                # Load Linear configuration
-                self._load_linear_config()
+    def _copy_claude_configurations(self, cproj_claude_dir: Path, project_claude_dir: Path, worktree_claude_dir: Path):
+        """Copy and merge Claude commands and agents configurations"""
+        for subdir in ["commands", "agents"]:
+            cproj_source_dir = cproj_claude_dir / subdir
+            target_dir = worktree_claude_dir / subdir
 
-                # Create workspace-specific configuration
-                workspace_config = {
-                    "project_root": str(repo_path),
-                    "worktree_path": str(worktree_path),
-                    "linear": {
-                        "org": self.config.get("linear_org"),
-                        "default_team": self.config.get("linear_default_team"),
-                        "default_project": self.config.get("linear_default_project"),
-                        "api_key_file": ".env.linear",
-                    },
-                    "commands": {
-                        "add-ticket": {
-                            "description": "Create comprehensive Linear tickets using AI agents",
-                            "agents": [
-                                "product-manager",
-                                "ux-designer",
-                                "senior-software-engineer",
-                            ],
-                            "requires_mcp": ["linear"],
-                        },
-                        "review-code": {
-                            "description": "Run comprehensive AI-powered code review using specialized review agents",
-                            "agents": ["senior-developer", "qa-engineer", "security-reviewer"],
-                            "requires_git": True,
-                        },
-                    },
-                    "agents": {
-                        "product-manager": "Turn high-level asks into crisp PRDs",
-                        "ux-designer": "Create clear, accessible, user-centric designs",
-                        "senior-software-engineer": "Plan implementation with tests and docs",
-                        "code-reviewer": "Review code for correctness and maintainability",
-                    },
-                }
+            # Copy cproj templates first
+            if cproj_source_dir.exists():
+                if target_dir.exists():
+                    shutil.rmtree(target_dir)
+                shutil.copytree(cproj_source_dir, target_dir)
+                print(f"  ✅ Copied cproj {subdir} templates")
 
-                config_file = worktree_claude_dir / "workspace.json"
-                with config_file.open("w") as f:
-                    json.dump(workspace_config, f, indent=2)
+            # Merge project-specific configs if they exist
+            if project_claude_dir.exists():
+                project_source_dir = project_claude_dir / subdir
+                if project_source_dir.exists():
+                    # Ensure target directory exists
+                    target_dir.mkdir(exist_ok=True)
+                    # Copy project files, potentially overwriting templates
+                    for item in project_source_dir.iterdir():
+                        target_file = target_dir / item.name
+                        if item.is_file():
+                            shutil.copy2(item, target_file)
+                            print(f"  ✅ Merged project {item.name}")
+                        elif item.is_dir():
+                            if target_file.exists():
+                                shutil.rmtree(target_file)
+                            shutil.copytree(item, target_file)
+                            print(f"  ✅ Merged project {item.name}/")
 
-                print("✅ Setup Claude workspace configuration")
-                print("💡 Available commands: add-ticket, review-code")
-                print("💡 Available agents: product-manager, ux-designer, senior-software-engineer, code-reviewer")
+    def _copy_mcp_configuration(self, cproj_claude_dir: Path, project_claude_dir: Path, worktree_claude_dir: Path):
+        """Copy MCP configuration (prefer project over cproj template)"""
+        mcp_source = None
+        if project_claude_dir.exists():
+            project_mcp = project_claude_dir / "mcp_config.json"
+            if project_mcp.exists():
+                mcp_source = project_mcp
+                print("  ✅ Using project mcp_config.json")
 
-            except (OSError, shutil.Error) as e:
-                print(f"⚠️  Failed to setup Claude workspace: {e}")
+        if not mcp_source:
+            cproj_mcp = cproj_claude_dir / "mcp_config.json"
+            if cproj_mcp.exists():
+                mcp_source = cproj_mcp
+                print("  ✅ Using cproj mcp_config.json")
+
+        if mcp_source:
+            shutil.copy2(mcp_source, worktree_claude_dir / "mcp_config.json")
+
+    def _create_workspace_configuration(self, worktree_claude_dir: Path, repo_path: Path, worktree_path: Path):
+        """Create workspace-specific configuration file"""
+        # Load Linear configuration
+        self._load_linear_config()
+
+        # Create workspace-specific configuration
+        workspace_config = {
+            "project_root": str(repo_path),
+            "worktree_path": str(worktree_path),
+            "linear": {
+                "org": self.config.get("linear_org"),
+                "default_team": self.config.get("linear_default_team"),
+                "default_project": self.config.get("linear_default_project"),
+                "api_key_file": ".env.linear",
+            },
+            "commands": {
+                "add-ticket": {
+                    "description": "Create comprehensive Linear tickets using AI agents",
+                    "agents": [
+                        "product-manager",
+                        "ux-designer",
+                        "senior-software-engineer",
+                    ],
+                    "requires_mcp": ["linear"],
+                },
+                "review-code": {
+                    "description": "Run comprehensive AI-powered code review using specialized review agents",
+                    "agents": ["senior-developer", "qa-engineer", "security-reviewer"],
+                    "requires_git": True,
+                },
+            },
+            "agents": {
+                "product-manager": "Turn high-level asks into crisp PRDs",
+                "ux-designer": "Create clear, accessible, user-centric designs",
+                "senior-software-engineer": "Plan implementation with tests and docs",
+                "code-reviewer": "Review code for correctness and maintainability",
+            },
+        }
+
+        config_file = worktree_claude_dir / "workspace.json"
+        with config_file.open("w") as f:
+            json.dump(workspace_config, f, indent=2)
 
     def _store_linear_api_key(self, api_key: str):
         """Store Linear API key securely in .env.linear file"""
@@ -1954,11 +2032,10 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                     continue
         return None
 
-    def cmd_worktree_create(self, args):
-        """Create worktree"""
-        # Derive project context from current working directory
+    def _resolve_repository_path(self, args):
+        """Resolve repository path from args or current directory"""
         if hasattr(args, "repo") and args.repo:
-            repo_path = Path(args.repo)
+            return Path(args.repo)
         else:
             # Find git repository root from current working directory
             repo_path = self._find_git_root(Path.cwd())
@@ -1971,20 +2048,11 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                 print()
                 print("Or:")
                 print("  cproj w create --repo /path/to/project --branch feature/name")
-                return
+                return None
+            return repo_path
 
-        # Derive project settings from repository
-        project_name = repo_path.name
-        base_branch = (hasattr(args, "base") and args.base) or self._detect_default_branch(repo_path) or "main"
-        temp_root = Path(
-            (hasattr(args, "temp_root") and args.temp_root)
-            or self.config.get("temp_root", tempfile.gettempdir())
-            or tempfile.gettempdir()
-        )
-
-        logger.debug(f"Using repository: {repo_path} (project: {project_name})")
-
-        # Interactive prompt for branch name if not provided and in interactive mode
+    def _prompt_for_branch_name(self, args):
+        """Handle interactive branch name prompting if needed"""
         if not hasattr(args, "branch") or not args.branch:
             if not self._is_interactive():
                 raise CprojError("Branch name is required. Use --branch BRANCH_NAME or run in interactive mode.")
@@ -2025,7 +2093,8 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             print(f"✅ Using branch: {args.branch}")
             print()
 
-        # Interactive prompt for Linear URL if not provided and Linear is configured
+    def _prompt_for_linear_integration(self, args):
+        """Handle Linear integration prompting if configured"""
         if not (hasattr(args, "linear") and args.linear) and self.config.get("linear_org") and self._is_interactive():
             print("🔗 Linear Integration (optional)")
             print("-" * 50)
@@ -2036,7 +2105,8 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                 print(f"✅ Using Linear URL: {args.linear}")
             print()
 
-        # Interactive prompt for environment setup options if not specified and in interactive mode
+    def _prompt_for_environment_setup(self, args, repo_path):
+        """Handle environment setup prompting if not specified"""
         if (
             not any(
                 [
@@ -2046,6 +2116,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                 ]
             )
             and self._is_interactive()
+            and not (hasattr(args, "no_env") and args.no_env)
         ):
             print("⚙️  Environment Setup (optional)")
             print("-" * 50)
@@ -2079,21 +2150,8 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             if has_python or has_node or has_java:
                 print()
 
-        git = GitWorktree(repo_path)
-
-        # Fetch and ensure base branch
-        git.fetch_all()
-        git.ensure_base_branch(base_branch)
-
-        # Create worktree path
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        worktree_name = f"{project_name}_{args.branch}_{timestamp}"
-        worktree_path = temp_root / worktree_name
-
-        # Create worktree
-        git.create_worktree(worktree_path, args.branch, base_branch, interactive=self._is_interactive())
-
-        # Setup environment
+    def _setup_worktree_environment(self, worktree_path, repo_path, args):
+        """Setup environment for the new worktree"""
         env_setup = EnvironmentSetup(worktree_path)
         python_install = hasattr(args, "python_install") and args.python_install
         shared_venv = hasattr(args, "shared_venv") and args.shared_venv
@@ -2109,7 +2167,10 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         if copy_env:
             env_setup.copy_env_files(repo_path)
 
-        # Create .agent.json
+        return python_env, node_env, java_env
+
+    def _create_agent_json(self, worktree_path, repo_path, project_name, args, python_env, node_env, java_env, base_branch):
+        """Create and configure .agent.json file"""
         agent_json = AgentJson(worktree_path)
         agent_json.set_project(project_name, str(repo_path))
         agent_json.set_workspace(str(worktree_path), args.branch, base_branch)
@@ -2122,18 +2183,8 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
 
         agent_json.save()
 
-        # Handle CLAUDE.md/.cursorrules symlink
-        self._setup_claude_symlink(worktree_path, repo_path)
-
-        # Setup nvm for Claude CLI if needed
-        self._setup_nvm_for_claude(worktree_path, node_env)
-
-        # Setup Claude workspace configuration
-        self._setup_claude_workspace(worktree_path, repo_path, args)
-
-        print(f"Created worktree: {worktree_path}")
-        print(f"Branch: {args.branch}")
-
+    def _handle_terminal_and_editor(self, worktree_path, args):
+        """Handle terminal and editor opening"""
         # Open terminal by default (unless --no-terminal is specified)
         terminal_app = (hasattr(args, "terminal") and args.terminal) or self.config.get("terminal", "Terminal")
         no_terminal = hasattr(args, "no_terminal") and args.no_terminal
@@ -2147,6 +2198,59 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             editor = (hasattr(args, "editor") and args.editor) or self.config.get("editor", "code")
             if editor:
                 TerminalAutomation.open_editor(worktree_path, editor)
+
+    def cmd_worktree_create(self, args):
+        """Create worktree"""
+        # Resolve repository path
+        repo_path = self._resolve_repository_path(args)
+        if not repo_path:
+            return
+
+        # Derive project settings from repository
+        project_name = repo_path.name
+        base_branch = (hasattr(args, "base") and args.base) or self._detect_default_branch(repo_path) or "main"
+        temp_root = Path(
+            (hasattr(args, "temp_root") and args.temp_root)
+            or self.config.get("temp_root", tempfile.gettempdir())
+            or tempfile.gettempdir()
+        )
+
+        logger.debug(f"Using repository: {repo_path} (project: {project_name})")
+
+        # Handle interactive prompts
+        self._prompt_for_branch_name(args)
+        self._prompt_for_linear_integration(args)
+        self._prompt_for_environment_setup(args, repo_path)
+
+        # Create git worktree
+        git = GitWorktree(repo_path)
+        git.fetch_all()
+        git.ensure_base_branch(base_branch)
+
+        # Create worktree path
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        worktree_name = f"{project_name}_{args.branch}_{timestamp}"
+        worktree_path = temp_root / worktree_name
+
+        # Create worktree
+        git.create_worktree(worktree_path, args.branch, base_branch, interactive=self._is_interactive())
+
+        # Setup environment
+        python_env, node_env, java_env = self._setup_worktree_environment(worktree_path, repo_path, args)
+
+        # Create .agent.json
+        self._create_agent_json(worktree_path, repo_path, project_name, args, python_env, node_env, java_env, base_branch)
+
+        # Setup Claude integration
+        self._setup_claude_symlink(worktree_path, repo_path)
+        self._setup_nvm_for_claude(worktree_path, node_env, args)
+        self._setup_claude_workspace(worktree_path, repo_path, args)
+
+        print(f"Created worktree: {worktree_path}")
+        print(f"Branch: {args.branch}")
+
+        # Handle terminal and editor opening
+        self._handle_terminal_and_editor(worktree_path, args)
 
     def cmd_review_open(self, args):
         """Open review"""
@@ -2357,6 +2461,245 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         if agent_json.data["links"]["pr"]:
             print(f"PR: {agent_json.data['links']['pr']}")
 
+    def _get_worktree_age_info(self, path: Path) -> str:
+        """Get age information for a worktree"""
+        age_info = ""
+        agent_json_path = path / ".cproj" / ".agent.json"
+        if agent_json_path.exists():
+            try:
+                agent_json = AgentJson(path)
+                created_at = datetime.fromisoformat(
+                    agent_json.data["workspace"]["created_at"].replace("Z", "+00:00")
+                )
+                age_days = (datetime.now(timezone.utc) - created_at).days
+                age_info = f" ({age_days} days old)"
+            except (json.JSONDecodeError, KeyError, ValueError) as e:
+                logger.debug(f"Error parsing date for {path}: {e}")
+        return age_info
+
+    def _show_cleanup_menu(self, active_worktrees: list, force_enabled: bool) -> None:
+        """Display cleanup menu and worktree list"""
+        print("🧹 Cleanup Worktrees")
+        print("-" * 50)
+
+        print(f"Found {len(active_worktrees)} active worktree(s):")
+        for wt in active_worktrees:
+            path = Path(wt["path"])
+            branch = wt.get("branch", "N/A")
+            age_info = self._get_worktree_age_info(path)
+            print(f"  - {path.name} [{branch}]{age_info}")
+
+        print()
+        print("Cleanup options:")
+        print("  1. Interactive selection")
+        print("  2. Remove worktrees newer than X days")
+        print("  3. Remove worktrees older than X days")
+        print("  4. Remove merged worktrees only")
+        print("  5. Cancel")
+        if force_enabled:
+            print("💪 Force mode enabled - will remove dirty worktrees")
+
+    def _handle_interactive_selection(self, active_worktrees: list, git: GitWorktree, force: bool) -> None:
+        """Handle interactive worktree selection for removal"""
+        current_worktree = Path.cwd()
+        selected_for_removal = []
+
+        print("📋 Select worktrees to remove:")
+        print("   [y/n] for each worktree, Enter to confirm selection")
+        print()
+
+        for wt in active_worktrees:
+            path = Path(wt["path"])
+            branch = wt.get("branch", "N/A")
+            age_info = self._get_worktree_age_info(path)
+
+            # Check if this is the current worktree
+            is_current = current_worktree == path or current_worktree.resolve() == path.resolve()
+            status_info = " [CURRENT]" if is_current else ""
+
+            while True:
+                response = input(f"Remove {path.name} [{branch}]{age_info}{status_info}? [y/N]: ").strip().lower()
+                if response in ["", "n", "no"]:
+                    break
+                elif response in ["y", "yes"]:
+                    if not is_current:  # Don't allow removing current worktree
+                        selected_for_removal.append(wt)
+                    else:
+                        print("❌ Cannot remove current worktree")
+                    break
+                else:
+                    print("Please enter 'y' or 'n'")
+
+        self._execute_worktree_removal(selected_for_removal, git, force)
+
+    def _execute_worktree_removal(self, selected_worktrees: list, git: GitWorktree, force: bool) -> None:
+        """Execute removal of selected worktrees"""
+        if not selected_worktrees:
+            print("No worktrees selected for removal")
+            return
+
+        print(f"\n📋 Selected {len(selected_worktrees)} worktrees for removal")
+        for wt in selected_worktrees:
+            print(f"  - {Path(wt['path']).name} [{wt.get('branch', 'N/A')}]")
+
+        confirm = input("\nConfirm removal? [y/N]: ").strip().lower()
+        if confirm not in ["y", "yes"]:
+            print("Cleanup cancelled")
+            return
+
+        for wt in selected_worktrees:
+            self._remove_single_worktree(Path(wt["path"]), git, force)
+
+    def _remove_single_worktree(self, path: Path, git: GitWorktree, force: bool) -> None:
+        """Remove a single worktree with error handling"""
+        try:
+            git.remove_worktree(path, force=force)
+            print(f"✅ Removed {path.name}")
+        except Exception as e:
+            error_msg = str(e)
+            if "is dirty" in error_msg and not force:
+                print(f"❌ Failed to remove {path.name}: Worktree is dirty (has uncommitted changes)")
+                if self._is_interactive():
+                    force_choice = input(f"Force removal of dirty worktree {path.name}? [y/N]: ").strip().lower()
+                    if force_choice in ["y", "yes"]:
+                        try:
+                            git.remove_worktree(path, force=True)
+                            print(f"✅ Force removed {path.name}")
+                        except Exception as force_e:
+                            print(f"❌ Failed to force remove {path.name}: {force_e}")
+                    else:
+                        print(f"⏭️  Skipped {path.name}")
+                else:
+                    print("💡 Use --force to remove dirty worktrees")
+            else:
+                print(f"❌ Failed to remove {path.name}: {e}")
+
+    def _get_worktree_age_info(self, path):
+        """Get age information for a worktree"""
+        age_info = ""
+        agent_json_path = path / ".cproj" / ".agent.json"
+        if agent_json_path.exists():
+            try:
+                agent_json = AgentJson(path)
+                created_at = datetime.fromisoformat(
+                    agent_json.data["workspace"]["created_at"].replace("Z", "+00:00")
+                )
+                age_days = (datetime.now(timezone.utc) - created_at).days
+                age_info = f" ({age_days} days old)"
+            except (json.JSONDecodeError, KeyError, ValueError) as e:
+                logger.debug(f"Error parsing date for {path}: {e}")
+        return age_info
+
+    def _show_cleanup_menu(self, active_worktrees, args):
+        """Show cleanup menu and get user selection"""
+        print("🧹 Cleanup Worktrees")
+        print("-" * 50)
+
+        print(f"Found {len(active_worktrees)} active worktree(s):")
+        for wt in active_worktrees:
+            path = Path(wt["path"])
+            branch = wt.get("branch", "N/A")
+            age_info = self._get_worktree_age_info(path)
+            print(f"  - {path.name} [{branch}]{age_info}")
+
+        print()
+        print("Cleanup options:")
+        print("  1. Interactive selection")
+        print("  2. Remove worktrees newer than X days")
+        print("  3. Remove worktrees older than X days")
+        print("  4. Remove merged worktrees only")
+        print("  5. Cancel")
+        if args.force:
+            print("💪 Force mode enabled - will remove dirty worktrees")
+
+        while True:
+            choice = input("Select cleanup method [1-5]: ").strip()
+            if choice in ["1", "2", "3", "4", "5"]:
+                return choice
+            print("❌ Please enter 1-5")
+
+    def _handle_interactive_selection(self, active_worktrees, git, args):
+        """Handle interactive worktree selection for cleanup"""
+        current_worktree = Path.cwd()
+        selected_for_removal = []
+
+        print("📋 Select worktrees to remove:")
+        print("   [y/n] for each worktree, Enter to confirm selection")
+        print()
+
+        for wt in active_worktrees:
+            path = Path(wt["path"])
+            branch = wt.get("branch", "N/A")
+            age_info = self._get_worktree_age_info(path)
+
+            # Check if this is the current worktree
+            is_current = current_worktree == path or current_worktree.resolve() == path.resolve()
+            status_info = " [CURRENT]" if is_current else ""
+
+            while True:
+                response = input(f"Remove {path.name} [{branch}]{age_info}{status_info}? [y/N]: ").strip().lower()
+                if response in ["", "n", "no"]:
+                    break
+                elif response in ["y", "yes"]:
+                    if not is_current:  # Don't allow removing current worktree
+                        selected_for_removal.append(wt)
+                    else:
+                        print("❌ Cannot remove current worktree")
+                    break
+                else:
+                    print("Please enter 'y' or 'n'")
+
+        if selected_for_removal:
+            print(f"\n📋 Selected {len(selected_for_removal)} worktrees for removal")
+            for wt in selected_for_removal:
+                print(f"  - {Path(wt['path']).name} [{wt.get('branch', 'N/A')}]")
+
+            confirm = input("\nConfirm removal? [y/N]: ").strip().lower()
+            if confirm in ["y", "yes"]:
+                for wt in selected_for_removal:
+                    self._remove_single_worktree(git, Path(wt["path"]), args.force)
+            else:
+                print("Cleanup cancelled")
+        else:
+            print("No worktrees selected for removal")
+
+    def _remove_single_worktree(self, git, path, force_removal):
+        """Remove a single worktree with error handling"""
+        try:
+            git.remove_worktree(path, force=force_removal)
+            print(f"✅ Removed {path.name}")
+        except Exception as e:
+            error_msg = str(e)
+            if "is dirty" in error_msg and not force_removal:
+                print(f"❌ Failed to remove {path.name}: Worktree is dirty (has uncommitted changes)")
+                if self._is_interactive():
+                    force_choice = input(f"Force removal of dirty worktree {path.name}? [y/N]: ").strip().lower()
+                    if force_choice in ["y", "yes"]:
+                        try:
+                            git.remove_worktree(path, force=True)
+                            print(f"✅ Force removed {path.name}")
+                        except Exception as force_e:
+                            print(f"❌ Failed to force remove {path.name}: {force_e}")
+                    else:
+                        print(f"⏭️  Skipped {path.name}")
+                else:
+                    print("💡 Use --force to remove dirty worktrees")
+            else:
+                print(f"❌ Failed to remove {path.name}: {e}")
+
+    def _execute_worktree_removal(self, to_remove, git, args):
+        """Execute the removal of selected worktrees"""
+        if not to_remove:
+            print("No worktrees to cleanup")
+            return
+
+        for wt in to_remove:
+            path = Path(wt["path"])
+            print(f"Would remove: {path}")
+
+            if not args.dry_run and (args.yes or input(f"Remove {path}? [y/N] ").lower() == "y"):
+                self._remove_single_worktree(git, path, args.force)
+
     def cmd_cleanup(self, args):
         """Cleanup worktrees"""
         repo_path = Path(self.config.get("repo_path", "."))
@@ -2370,187 +2713,47 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
 
         # Interactive prompt for cleanup criteria if not specified and in interactive mode
         if not any([args.older_than, getattr(args, "newer_than", None), args.merged_only]) and self._is_interactive():
-            print("🧹 Cleanup Worktrees")
-            print("-" * 50)
-
-            # Show current worktrees with ages
             active_worktrees = [wt for wt in worktrees if Path(wt["path"]) != repo_path]
             if not active_worktrees:
                 print("No worktrees to clean up.")
                 return
 
-            print(f"Found {len(active_worktrees)} active worktree(s):")
-            for wt in active_worktrees:
-                path = Path(wt["path"])
-                branch = wt.get("branch", "N/A")
+            choice = self._show_cleanup_menu(active_worktrees, args)
 
-                # Try to get age
-                age_info = ""
-                agent_json_path = path / ".cproj" / ".agent.json"
-                if agent_json_path.exists():
-                    try:
-                        agent_json = AgentJson(path)
-                        created_at = datetime.fromisoformat(
-                            agent_json.data["workspace"]["created_at"].replace("Z", "+00:00")
-                        )
-                        age_days = (datetime.now(timezone.utc) - created_at).days
-                        age_info = f" ({age_days} days old)"
-                    except (json.JSONDecodeError, KeyError, ValueError) as e:
-                        logger.debug(f"Error parsing date for {path}: {e}")
-                        pass
-
-                print(f"  - {path.name} [{branch}]{age_info}")
-
-            print()
-            print("Cleanup options:")
-            print("  1. Interactive selection")
-            print("  2. Remove worktrees newer than X days")
-            print("  3. Remove worktrees older than X days")
-            print("  4. Remove merged worktrees only")
-            print("  5. Cancel")
-            if args.force:
-                print("💪 Force mode enabled - will remove dirty worktrees")
-
-            while True:
-                choice = input("Select cleanup method [1-5]: ").strip()
-
-                if choice == "1":
-                    # Interactive selection mode (moved to option 1)
-                    current_worktree = Path.cwd()
-                    selected_for_removal = []
-
-                    print("📋 Select worktrees to remove:")
-                    print("   [y/n] for each worktree, Enter to confirm selection")
-                    print()
-
-                    for _i, wt in enumerate(active_worktrees):
-                        path = Path(wt["path"])
-                        branch = wt.get("branch", "N/A")
-
-                        # Get age info
-                        age_info = ""
-                        agent_json_path = path / ".cproj" / ".agent.json"
-                        if agent_json_path.exists():
-                            try:
-                                agent_json = AgentJson(path)
-                                created_at = datetime.fromisoformat(
-                                    agent_json.data["workspace"]["created_at"].replace("Z", "+00:00")
-                                )
-                                age_days = (datetime.now(timezone.utc) - created_at).days
-                                age_info = f" ({age_days} days old)"
-                            except (json.JSONDecodeError, KeyError, ValueError) as e:
-                                logger.debug(f"Error parsing date for {path}: {e}")
-                                pass
-
-                        # Check if this is the current worktree
-                        is_current = current_worktree == path or current_worktree.resolve() == path.resolve()
-                        status_info = " [CURRENT]" if is_current else ""
-
-                        while True:
-                            response = (
-                                input(f"Remove {path.name} [{branch}]{age_info}{status_info}? [y/N]: ").strip().lower()
-                            )
-                            if response in ["", "n", "no"]:
-                                break
-                            elif response in ["y", "yes"]:
-                                if not is_current:  # Don't allow removing current worktree
-                                    selected_for_removal.append(wt)
-                                else:
-                                    print("❌ Cannot remove current worktree")
-                                break
-                            else:
-                                print("Please enter 'y' or 'n'")
-
-                    if selected_for_removal:
-                        print(f"\n📋 Selected {len(selected_for_removal)} worktrees for removal")
-                        for wt in selected_for_removal:
-                            print(f"  - {Path(wt['path']).name} [{wt.get('branch', 'N/A')}]")
-
-                        confirm = input("\nConfirm removal? [y/N]: ").strip().lower()
-                        if confirm in ["y", "yes"]:
-                            for wt in selected_for_removal:
-                                try:
-                                    git.remove_worktree(Path(wt["path"]), force=args.force)
-                                    print(f"✅ Removed {Path(wt['path']).name}")
-                                except Exception as e:
-                                    error_msg = str(e)
-                                    if "is dirty" in error_msg and not args.force:
-                                        print(
-
-                                                f"❌ Failed to remove {Path(wt['path']).name}: "
-                                                f"Worktree is dirty (has uncommitted changes)"
-
-                                        )
-                                        if self._is_interactive():
-                                            force_choice = (
-                                                input(
-                                                    f"Force removal of dirty worktree {Path(wt['path']).name}? [y/N]: "
-                                                )
-                                                .strip()
-                                                .lower()
-                                            )
-                                            if force_choice in ["y", "yes"]:
-                                                try:
-                                                    git.remove_worktree(Path(wt["path"]), force=True)
-                                                    print(f"✅ Force removed {Path(wt['path']).name}")
-                                                except Exception as force_e:
-                                                    print(
-                                                        f"❌ Failed to force remove {Path(wt['path']).name}: {force_e}"
-                                                    )
-                                            else:
-                                                print(f"⏭️  Skipped {Path(wt['path']).name}")
-                                        else:
-                                            print("💡 Use --force to remove dirty worktrees")
-                                    else:
-                                        print(f"❌ Failed to remove {Path(wt['path']).name}: {e}")
-                        else:
-                            print("Cleanup cancelled")
-                    else:
-                        print("No worktrees selected for removal")
+            if choice == "1":
+                self._handle_interactive_selection(active_worktrees, git, args)
+                return
+            elif choice == "2":
+                # Remove worktrees newer than X days
+                default_days = 7
+                days_input = input(f"Remove worktrees newer than how many days? [{default_days}]: ").strip()
+                try:
+                    newer_days = int(days_input) if days_input else default_days
+                    args.newer_than = newer_days
+                    logger.debug(f"Set args.newer_than to {args.newer_than}")
+                except ValueError:
+                    print("❌ Please enter a valid number")
                     return
-
-                elif choice == "2":
-                    # New option: Remove worktrees newer than X days
-                    default_days = 7
-                    days_input = input(f"Remove worktrees newer than how many days? [{default_days}]: ").strip()
-                    try:
-                        newer_days = int(days_input) if days_input else default_days
-                        args.newer_than = newer_days
-                        logger.debug(f"Set args.newer_than to {args.newer_than}")
-                        break
-                    except ValueError:
-                        print("❌ Please enter a valid number")
-                        continue
-
-                elif choice == "3":
-                    default_days = self.config.get("cleanup_days", 14)
-                    days_input = input(f"Remove worktrees older than how many days? [{default_days}]: ").strip()
-                    try:
-                        args.older_than = int(days_input) if days_input else default_days
-                        break
-                    except ValueError:
-                        print("❌ Please enter a valid number")
-                        continue
-
-                elif choice == "4":
-                    args.merged_only = True
-                    break
-
-                elif choice == "5":
-                    print("Cleanup cancelled")
+            elif choice == "3":
+                # Remove worktrees older than X days
+                default_days = self.config.get("cleanup_days", 14)
+                days_input = input(f"Remove worktrees older than how many days? [{default_days}]: ").strip()
+                try:
+                    args.older_than = int(days_input) if days_input else default_days
+                except ValueError:
+                    print("❌ Please enter a valid number")
                     return
-
-                else:
-                    print("❌ Please enter 1-5")
-                    continue
+            elif choice == "4":
+                args.merged_only = True
+            elif choice == "5":
+                print("Cleanup cancelled")
+                return
 
             print()
 
         logger.debug(
-
-                f"Processing cleanup with filters - older_than: {args.older_than}, newer_than: "
-                f"{getattr(args, 'newer_than', None)}, merged_only: {args.merged_only}"
-
+            f"Processing cleanup with filters - older_than: {args.older_than}, newer_than: "
+            f"{getattr(args, 'newer_than', None)}, merged_only: {args.merged_only}"
         )
 
         to_remove = []
@@ -2562,9 +2765,16 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             should_remove = False
             logger.debug(f"Evaluating worktree: {path.name}")
 
-            # Check age
+            # Define agent_json_path once for all checks
+            agent_json_path = path / ".cproj" / ".agent.json"
+
+            # Track individual criteria results for AND logic
+            age_matches = True  # Default to true if no age criteria
+            merged_matches = True  # Default to true if no merged criteria
+
+            # Check age criteria
             if args.older_than:
-                agent_json_path = path / ".cproj" / ".agent.json"
+                age_matches = False  # Will be true only if age condition is met
                 if agent_json_path.exists():
                     try:
                         agent_json = AgentJson(path)
@@ -2573,15 +2783,14 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                         )
                         age_days = (datetime.now(timezone.utc) - created_at).days
                         if age_days > args.older_than:
-                            should_remove = True
+                            age_matches = True
                     except (json.JSONDecodeError, KeyError, ValueError) as e:
                         logger.debug(f"Error parsing date for {path}: {e}")
-                        pass
 
             # Check for newer than (opposite logic)
             if hasattr(args, "newer_than") and args.newer_than:
+                age_matches = False  # Will be true only if age condition is met
                 logger.debug(f"Checking newer_than condition for {path.name}")
-                agent_json_path = path / ".cproj" / ".agent.json"
                 if agent_json_path.exists():
                     try:
                         agent_json = AgentJson(path)
@@ -2591,22 +2800,25 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                         age_days = (datetime.now(timezone.utc) - created_at).days
                         logger.debug(f"{path.name} is {age_days} days old, newer_than={args.newer_than}")
                         if age_days <= args.newer_than:
-                            should_remove = True
+                            age_matches = True
                             logger.debug(f"Marking {path.name} for removal (newer than {args.newer_than} days)")
                     except (OSError, ValueError) as e:
                         logger.debug(f"Error processing {path.name}: {e}")
-                        pass
 
             # Check if merged (proper JSON parsing)
-            if args.merged_only and agent_json_path.exists():
-                try:
-                    agent_data = json.loads(agent_json_path.read_text())
-                    if "closed_at" in agent_data.get("workspace", {}):
-                        should_remove = True
-                        logger.debug(f"Marking {path.name} for removal (marked as closed)")
-                except (json.JSONDecodeError, KeyError) as e:
-                    logger.debug(f"Error parsing agent.json for merged check in {path.name}: {e}")
-                    pass
+            if args.merged_only:
+                merged_matches = False  # Will be true only if merged condition is met
+                if agent_json_path.exists():
+                    try:
+                        agent_data = json.loads(agent_json_path.read_text())
+                        if "closed_at" in agent_data.get("workspace", {}):
+                            merged_matches = True
+                            logger.debug(f"Marking {path.name} for removal (marked as closed)")
+                    except (json.JSONDecodeError, KeyError) as e:
+                        logger.debug(f"Error parsing agent.json for merged check in {path.name}: {e}")
+
+            # Use AND logic - all specified criteria must be met
+            should_remove = age_matches and merged_matches
 
             if should_remove:
                 logger.debug(f"Adding {path.name} to removal list")
@@ -2614,38 +2826,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             else:
                 logger.debug(f"Keeping {path.name}")
 
-        if not to_remove:
-            print("No worktrees to cleanup")
-            return
-
-        for wt in to_remove:
-            path = Path(wt["path"])
-            print(f"Would remove: {path}")
-
-            if not args.dry_run and (args.yes or input(f"Remove {path}? [y/N] ").lower() == "y"):
-                try:
-                    git.remove_worktree(path, force=args.force)
-                    print(f"Removed: {path}")
-                except Exception as e:
-                    error_msg = str(e)
-                    if "is dirty" in error_msg and not args.force:
-                        print(f"❌ Failed to remove {path.name}: Worktree is dirty (has uncommitted changes)")
-                        if self._is_interactive():
-                            force_choice = (
-                                input(f"Force removal of dirty worktree {path.name}? [y/N]: ").strip().lower()
-                            )
-                            if force_choice in ["y", "yes"]:
-                                try:
-                                    git.remove_worktree(path, force=True)
-                                    print(f"✅ Force removed {path.name}")
-                                except Exception as force_e:
-                                    print(f"❌ Failed to force remove {path.name}: {force_e}")
-                            else:
-                                print(f"⏭️  Skipped {path.name}")
-                        else:
-                            print("💡 Use --force to remove dirty worktrees")
-                    else:
-                        print(f"❌ Failed to remove {path.name}: {e}")
+        self._execute_worktree_removal(to_remove, git, args)
 
     def cmd_open(self, args):
         """Open workspace"""
@@ -2757,88 +2938,109 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
 
         # If no arguments, run interactive setup
         if not has_args:
-            print("\n📝 Interactive Linear Setup")
-            print("Configure your Linear integration step by step:")
-            print()
-
-            # Prompt for organization
-            current_org = self.config.get("linear_org", "")
-            org_prompt = f"Linear organization [{current_org}]: " if current_org else "Linear organization: "
-            org = input(org_prompt).strip()
-            if org:
-                self.config.set("linear_org", org)
-                print(f"✅ Set organization: {org}")
-            elif current_org:
-                print(f"✅ Using existing organization: {current_org}")
-
-            # Prompt for team
-            current_team = self.config.get("linear_default_team", "")
-            team_prompt = f"Default team [{current_team}]: " if current_team else "Default team (optional): "
-            team = input(team_prompt).strip()
-            if team:
-                self.config.set("linear_default_team", team)
-                print(f"✅ Set default team: {team}")
-            elif current_team:
-                print(f"✅ Using existing team: {current_team}")
-
-            # Prompt for project
-            current_project = self.config.get("linear_default_project", "")
-            project_prompt = (
-                f"Default project [{current_project}]: " if current_project else "Default project (optional): "
-            )
-            project = input(project_prompt).strip()
-            if project:
-                self.config.set("linear_default_project", project)
-                print(f"✅ Set default project: {project}")
-            elif current_project:
-                print(f"✅ Using existing project: {current_project}")
-
-            # Check if API key is already configured
-            linear_config = self._load_linear_config()
-            if linear_config.get("LINEAR_API_KEY"):
-                source = linear_config.get("LINEAR_API_KEY_SOURCE", "File")
-                print(f"✅ API key already configured (source: {source})")
-            else:
-                # Prompt for API key configuration
-                print("\n🔑 API Key Configuration")
-                print("Choose how to configure your Linear API key:")
-                print("  1. From 1Password (recommended)")
-                print("  2. Enter directly")
-                print("  3. Skip for now")
-
-                choice = input("Choose option [1]: ").strip() or "1"
-
-                if choice == "1":
-                    self._setup_api_key_from_1password()
-                elif choice == "2":
-                    api_key = input("Enter your Linear API key: ").strip()
-                    if api_key:
-                        try:
-                            self._store_linear_api_key(api_key)
-                            print("✅ API key stored securely")
-                        except ValueError as e:
-                            print(f"❌ Failed to store API key: {e}")
-                elif choice == "3":
-                    print("⏭️  Skipping API key configuration")
-                    print("💡 You can set it later with: cproj linear setup --from-1password")
+            self._interactive_linear_setup()
         else:
-            # Handle command-line arguments
-            # Update organization URL
-            if args.org:
-                self.config.set("linear_org", args.org)
-                print(f"✅ Set organization: {args.org}")
+            self._handle_linear_command_line_args(args)
 
-            # Update default team
-            if args.team:
-                self.config.set("linear_default_team", args.team)
-                print(f"✅ Set default team: {args.team}")
+        # Handle API key setup from command-line flags
+        self._handle_linear_api_key_args(args)
 
-            # Update default project
-            if args.project:
-                self.config.set("linear_default_project", args.project)
-                print(f"✅ Set default project: {args.project}")
+        print("\n💡 Configuration updated! Test with: cproj linear test")
 
-        # Update API key (command-line args)
+    def _interactive_linear_setup(self):
+        """Handle interactive Linear setup prompting"""
+        print("\n📝 Interactive Linear Setup")
+        print("Configure your Linear integration step by step:")
+        print()
+
+        # Prompt for organization, team, and project
+        self._prompt_linear_organization()
+        self._prompt_linear_team()
+        self._prompt_linear_project()
+
+        # Handle API key configuration
+        self._prompt_linear_api_key_setup()
+
+    def _prompt_linear_organization(self):
+        """Prompt for Linear organization configuration"""
+        current_org = self.config.get("linear_org", "")
+        org_prompt = f"Linear organization [{current_org}]: " if current_org else "Linear organization: "
+        org = input(org_prompt).strip()
+        if org:
+            self.config.set("linear_org", org)
+            print(f"✅ Set organization: {org}")
+        elif current_org:
+            print(f"✅ Using existing organization: {current_org}")
+
+    def _prompt_linear_team(self):
+        """Prompt for Linear default team configuration"""
+        current_team = self.config.get("linear_default_team", "")
+        team_prompt = f"Default team [{current_team}]: " if current_team else "Default team (optional): "
+        team = input(team_prompt).strip()
+        if team:
+            self.config.set("linear_default_team", team)
+            print(f"✅ Set default team: {team}")
+        elif current_team:
+            print(f"✅ Using existing team: {current_team}")
+
+    def _prompt_linear_project(self):
+        """Prompt for Linear default project configuration"""
+        current_project = self.config.get("linear_default_project", "")
+        project_prompt = (
+            f"Default project [{current_project}]: " if current_project else "Default project (optional): "
+        )
+        project = input(project_prompt).strip()
+        if project:
+            self.config.set("linear_default_project", project)
+            print(f"✅ Set default project: {project}")
+        elif current_project:
+            print(f"✅ Using existing project: {current_project}")
+
+    def _prompt_linear_api_key_setup(self):
+        """Prompt for Linear API key setup if not already configured"""
+        linear_config = self._load_linear_config()
+        if linear_config.get("LINEAR_API_KEY"):
+            source = linear_config.get("LINEAR_API_KEY_SOURCE", "File")
+            print(f"✅ API key already configured (source: {source})")
+        else:
+            print("\n🔑 API Key Configuration")
+            print("Choose how to configure your Linear API key:")
+            print("  1. From 1Password (recommended)")
+            print("  2. Enter directly")
+            print("  3. Skip for now")
+
+            choice = input("Choose option [1]: ").strip() or "1"
+
+            if choice == "1":
+                self._setup_api_key_from_1password()
+            elif choice == "2":
+                api_key = input("Enter your Linear API key: ").strip()
+                if api_key:
+                    try:
+                        self._store_linear_api_key(api_key)
+                        print("✅ API key stored securely")
+                    except ValueError as e:
+                        print(f"❌ Failed to store API key: {e}")
+            elif choice == "3":
+                print("⏭️  Skipping API key configuration")
+                print("💡 You can set it later with: cproj linear setup --from-1password")
+
+    def _handle_linear_command_line_args(self, args):
+        """Handle Linear setup from command-line arguments"""
+        if args.org:
+            self.config.set("linear_org", args.org)
+            print(f"✅ Set organization: {args.org}")
+
+        if args.team:
+            self.config.set("linear_default_team", args.team)
+            print(f"✅ Set default team: {args.team}")
+
+        if args.project:
+            self.config.set("linear_default_project", args.project)
+            print(f"✅ Set default project: {args.project}")
+
+    def _handle_linear_api_key_args(self, args):
+        """Handle Linear API key setup from command-line arguments"""
         if args.api_key:
             try:
                 self._store_linear_api_key(args.api_key)
@@ -2847,41 +3049,43 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                 print(f"❌ Failed to store API key: {e}")
                 return
         elif args.from_1password:
-            # Check if 1Password is available
-            if not OnePasswordIntegration.is_available():
-                print("❌ 1Password CLI not available or not authenticated")
-                print("💡 Install 1Password CLI and run 'op account add' to set up")
-                return
+            self._setup_linear_1password_integration()
 
-            # Prompt for 1Password reference
-            print("\n📝 To get your Linear API key reference from 1Password:")
-            print("   1. Open the Linear API key item in 1Password")
-            print("   2. Right-click on the password/secret field")
-            print("   3. Select 'Copy Secret Reference'")
-            print()
-            reference = input("Enter 1Password reference (e.g., op://Private/linear-api-key/password): ").strip()
-            if reference:
-                # Strip quotes that 1Password includes in "Copy Secret Reference"
-                reference = reference.strip("\"'")
+    def _setup_linear_1password_integration(self):
+        """Setup Linear API key from 1Password"""
+        # Check if 1Password is available
+        if not OnePasswordIntegration.is_available():
+            print("❌ 1Password CLI not available or not authenticated")
+            print("💡 Install 1Password CLI and run 'op account add' to set up")
+            return
 
-                # Test the reference
-                api_key = OnePasswordIntegration.get_secret(reference)
-                if api_key:
-                    try:
-                        self._store_linear_1password_ref(reference)
-                        print("✅ 1Password reference stored and validated")
-                    except ValueError as e:
-                        print(f"❌ Failed to store reference: {e}")
-                        return
-                else:
-                    print("❌ Could not retrieve API key from 1Password reference")
-                    print("💡 Check that the reference is correct and you're authenticated")
+        # Prompt for 1Password reference
+        print("\n📝 To get your Linear API key reference from 1Password:")
+        print("   1. Open the Linear API key item in 1Password")
+        print("   2. Right-click on the password/secret field")
+        print("   3. Select 'Copy Secret Reference'")
+        print()
+        reference = input("Enter 1Password reference (e.g., op://Private/linear-api-key/password): ").strip()
+        if reference:
+            # Strip quotes that 1Password includes in "Copy Secret Reference"
+            reference = reference.strip("\"'")
+
+            # Test the reference
+            api_key = OnePasswordIntegration.get_secret(reference)
+            if api_key:
+                try:
+                    self._store_linear_1password_ref(reference)
+                    print("✅ 1Password reference stored and validated")
+                except ValueError as e:
+                    print(f"❌ Failed to store reference: {e}")
                     return
             else:
-                print("❌ No reference provided")
+                print("❌ Could not retrieve API key from 1Password reference")
+                print("💡 Check that the reference is correct and you're authenticated")
                 return
-
-        print("\n💡 Configuration updated! Test with: cproj linear test")
+        else:
+            print("❌ No reference provided")
+            return
 
     def cmd_linear_test(self, args):  # noqa: ARG002
         """Test Linear integration"""
