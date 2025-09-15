@@ -5,11 +5,13 @@ A production-ready CLI tool for managing parallel project work using Git worktre
 """
 
 import argparse
+import contextlib
 import getpass
 import json
 import logging
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -273,7 +275,7 @@ class GitWorktree:
                                 )
                                 return worktree_path
                             except subprocess.CalledProcessError as e:
-                                raise CprojError(f"Failed to force create worktree: {e}")
+                                raise CprojError(f"Failed to force create worktree: {e}") from e
                         elif choice == '4':
                             raise CprojError("Worktree creation cancelled by user")
                         else:
@@ -400,7 +402,7 @@ class GitWorktree:
         self, args: List[str], cwd: Optional[Path] = None, **kwargs
     ) -> subprocess.CompletedProcess:
         """Run git command"""
-        cmd = ['git', '-C', str(cwd or self.repo_path)] + args
+        cmd = ['git', '-C', str(cwd or self.repo_path), *args]
         return subprocess.run(cmd, check=True, **kwargs)
 
 
@@ -459,7 +461,7 @@ class AgentJson:
 
     def _load(self) -> Dict:
         try:
-            with open(self.path) as f:
+            with self.path.open() as f:
                 return json.load(f)
         except (OSError, json.JSONDecodeError) as e:
             logger.debug(f"Error loading agent.json from {self.path}: {e}")
@@ -468,7 +470,7 @@ class AgentJson:
 
     def save(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.path, 'w') as f:
+        with self.path.open('w') as f:
             json.dump(self.data, f, indent=2)
 
     def set_project(self, name: str, repo_path: str):
@@ -604,7 +606,7 @@ class EnvironmentSetup:
         return pyproject_paths, requirements_paths
 
     def setup_python(
-        self, auto_install: bool = False, shared_venv: bool = False, repo_path: Path = None
+        self, auto_install: bool = False, shared_venv: bool = False, repo_path: Optional[Path] = None
     ) -> Dict:
         """Setup Python environment with uv or venv"""
         env_data = {
@@ -740,7 +742,7 @@ class EnvironmentSetup:
         try:
             # Use node version from .nvmrc or LTS
             if nvmrc.exists():
-                with open(nvmrc) as f:
+                with nvmrc.open() as f:
                     node_version = f.read().strip()
             else:
                 node_version = 'lts/*'
@@ -762,20 +764,16 @@ class EnvironmentSetup:
         if (self.worktree_path / 'pom.xml').exists():
             env_data['build'] = 'maven'
             if auto_build:
-                try:
+                with contextlib.suppress(subprocess.CalledProcessError, FileNotFoundError):
                     subprocess.run(['mvn', 'compile', '-DskipTests'],
                                  cwd=self.worktree_path, check=True, capture_output=True)
-                except (subprocess.CalledProcessError, FileNotFoundError):
-                    pass
 
         elif any((self.worktree_path / f).exists() for f in ['build.gradle', 'build.gradle.kts']):
             env_data['build'] = 'gradle'
             if auto_build:
-                try:
+                with contextlib.suppress(subprocess.CalledProcessError, FileNotFoundError):
                     subprocess.run(['./gradlew', 'compileJava'],
                                  cwd=self.worktree_path, check=True, capture_output=True)
-                except (subprocess.CalledProcessError, FileNotFoundError):
-                    pass
 
         return env_data
 
@@ -1341,8 +1339,8 @@ class CprojCLI:
         linear_setup.add_argument('--project', help='Default project ID')
         linear_setup.add_argument('--org', help='Linear organization URL')
 
-        linear_test = linear_sub.add_parser('test', help='Test Linear integration')
-        linear_status = linear_sub.add_parser('status', help='Show Linear configuration status')
+        linear_sub.add_parser('test', help='Test Linear integration')
+        linear_sub.add_parser('status', help='Show Linear configuration status')
 
         return parser
 
@@ -1362,7 +1360,7 @@ class CprojCLI:
         try:
             if parsed_args.command == 'init' or parsed_args.command in ['new', 'start']:
                 self.cmd_init(parsed_args)
-            elif parsed_args.command == 'worktree' or parsed_args.command == 'w':
+            elif parsed_args.command in {'worktree', 'w'}:
                 if parsed_args.worktree_command == 'create':
                     self.cmd_worktree_create(parsed_args)
                 else:
@@ -1528,7 +1526,6 @@ class CprojCLI:
 
     def _is_interactive(self) -> bool:
         """Check if we're running in an interactive terminal"""
-        import sys
         return sys.stdin.isatty() and sys.stdout.isatty()
 
     def _setup_claude_symlink(self, worktree_path: Path, repo_path: Path):
@@ -1578,7 +1575,6 @@ class CprojCLI:
                 # First copy CLAUDE.md to worktree if it doesn't exist
                 worktree_claude = worktree_path / 'CLAUDE.md'
                 if not worktree_claude.exists():
-                    import shutil
                     shutil.copy2(claude_md, worktree_claude)
                     print("✅ Copied CLAUDE.md to worktree")
 
@@ -1690,8 +1686,6 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         if setup_workspace:
             print(f"🔧 Setting up Claude workspace in {worktree_path}")
             try:
-                import shutil
-
                 # Create .claude directory in worktree
                 worktree_claude_dir = worktree_path / '.claude'
                 worktree_claude_dir.mkdir(exist_ok=True)
@@ -1745,7 +1739,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                     shutil.copy2(mcp_source, worktree_claude_dir / 'mcp_config.json')
 
                 # Load Linear configuration
-                linear_config = self._load_linear_config()
+                self._load_linear_config()
 
                 # Create workspace-specific configuration
                 workspace_config = {
@@ -1778,7 +1772,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                 }
 
                 config_file = worktree_claude_dir / 'workspace.json'
-                with open(config_file, 'w') as f:
+                with config_file.open('w') as f:
                     json.dump(workspace_config, f, indent=2)
 
                 print("✅ Setup Claude workspace configuration")
@@ -1801,7 +1795,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
 
             # Create .env.linear file
             env_file = git_root / '.env.linear'
-            with open(env_file, 'w') as f:
+            with env_file.open('w') as f:
                 f.write("# Linear API Key - DO NOT COMMIT TO GIT\n")
                 f.write("# This file is automatically added to .gitignore\n")
                 f.write(f"LINEAR_API_KEY={api_key}\n")
@@ -1829,7 +1823,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
 
             # Store reference
             ref_file = cproj_dir / '.linear-1password-ref'
-            with open(ref_file, 'w') as f:
+            with ref_file.open('w') as f:
                 f.write(reference)
 
             # Set restrictive permissions
@@ -1886,13 +1880,13 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         # Check if pattern already exists
         content = ""
         if gitignore_path.exists():
-            with open(gitignore_path) as f:
+            with gitignore_path.open() as f:
                 content = f.read()
                 if pattern in content:
                     return
 
         # Add pattern to .gitignore
-        with open(gitignore_path, 'a') as f:
+        with gitignore_path.open('a') as f:
             if gitignore_path.exists() and content and not content.endswith('\n'):
                 f.write('\n')
             f.write("# Linear API key (added by cproj)\n")
@@ -1910,7 +1904,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         env_file = git_root / '.env.linear'
         if env_file.exists():
             try:
-                with open(env_file) as f:
+                with env_file.open() as f:
                     for line in f:
                         line = line.strip()
                         if line and not line.startswith('#') and '=' in line:
@@ -1925,7 +1919,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             onepass_ref_file = cproj_dir / '.linear-1password-ref'
             if onepass_ref_file.exists():
                 try:
-                    with open(onepass_ref_file) as f:
+                    with onepass_ref_file.open() as f:
                         reference = f.read().strip()
                         if reference and OnePasswordIntegration.is_available():
                             api_key = OnePasswordIntegration.get_secret(reference)
@@ -1939,7 +1933,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
 
     def _generate_branch_suggestions(self) -> List[str]:
         """Generate reasonable branch name suggestions"""
-        from datetime import datetime
+        # Use datetime that's already imported at top level
 
         # Get configured branch scheme
         branch_scheme = self.config.get('branch_scheme', 'feature/{ticket}-{slug}')
@@ -2182,7 +2176,6 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         no_terminal = hasattr(args, 'no_terminal') and args.no_terminal
         if not no_terminal and terminal_app != 'none':
             # Strip branch prefix (everything before /) for cleaner window title
-            import re
             branch_display = re.sub(r'^\S+/', '', args.branch)
             TerminalAutomation.open_terminal(worktree_path, branch_display, terminal_app)
 
@@ -2354,10 +2347,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
 
     def cmd_status(self, args):
         """Show status"""
-        if hasattr(args, 'path') and args.path:
-            worktree_path = Path(args.path)
-        else:
-            worktree_path = Path.cwd()
+        worktree_path = Path(args.path) if hasattr(args, 'path') and args.path else Path.cwd()
 
         agent_json_path = worktree_path / '.cproj' / '.agent.json'
         if not agent_json_path.exists():
@@ -2366,7 +2356,6 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
 
             # Try to get git status if we're in a git repository
             try:
-                import subprocess
                 result = subprocess.run(['git', 'status', '--porcelain'],
                                       cwd=worktree_path, capture_output=True, text=True, check=True)
                 if result.stdout.strip():
@@ -2462,7 +2451,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                     print("   [y/n] for each worktree, Enter to confirm selection")
                     print()
 
-                    for i, wt in enumerate(active_worktrees):
+                    for _i, wt in enumerate(active_worktrees):
                         path = Path(wt['path'])
                         branch = wt.get('branch', 'N/A')
 
@@ -2690,7 +2679,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             raise CprojError("Not in a cproj worktree (no .agent.json found in .cproj directory)")
 
         agent_json = AgentJson(worktree_path)
-        project_name = agent_json.data['project']['name']
+        agent_json.data['project']['name']
         branch = agent_json.data['workspace']['branch']
 
         terminal_app = args.terminal or self.config.get('terminal', 'Terminal')
@@ -2699,7 +2688,6 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         # Open terminal
         if terminal_app != 'none':
             # Strip branch prefix (everything before /) for cleaner window title
-            import re
             branch_display = re.sub(r'^\S+/', '', branch)
             TerminalAutomation.open_terminal(worktree_path, branch_display, terminal_app)
 
@@ -2733,7 +2721,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             else:
                 logger.warning(f"Refusing to open potentially unsafe URL: {url}")
         except Exception as e:
-            logger.error(f"Error opening URL {url}: {e}")
+            logger.exception(f"Error opening URL {url}: {e}")
 
     def cmd_config(self, args):
         """Configuration management"""
