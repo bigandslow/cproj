@@ -141,4 +141,4 @@ dmypy.json
 Thumbs.db
 
 # Project specific
-.cproj/.linear-1password-ref
+.cproj/

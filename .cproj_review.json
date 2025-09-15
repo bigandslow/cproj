@@ -1,9 +1,9 @@
 {
-  "timestamp": "2025-09-14T09:12:42.592305",
+  "timestamp": "2025-09-14T19:29:31.960195",
   "worktree": "/Users/cstrahorn/.cache/cproj-workspaces/cproj_fix/self-review_20250914_081642",
   "context": {
-    "pr_title": "fixself-review",
-    "pr_desc": "Recent commits:\na09a0e6 Fix critical security vulnerabilities and add comprehensive test suite\n7196ed9 Add proper logging system with configurable log levels\n5624430 Add --force flag and fix newer than cleanup logic\n5baff08 Organize worktree files in .cproj directory and improve cleanup menu\n94d7b53 Fix nvm detection for Claude CLI and add review-code command\n87139d2 Add comprehensive Linear integration with multi-agent ticket creation workflow\n7295555 Add Claude IDE and nvm automation features\n3eafda1 Fix remaining test failures in cproj test suite\nf90afa9 Fix remaining security issues from agent re-review\n4b356cb Address critical security vulnerabilities and code review feedback",
+    "pr_title": "fix/self-review",
+    "pr_desc": "Recent commits:\n80e71d9 Add comprehensive integration test suite with real Git, CLI, and environment testing\n036f764 Add comprehensive test suite and CI/CD pipeline\n728d219 Resolve merge conflict and maintain security improvements\nf36dd9f Add interactive force removal prompts for dirty worktrees in cleanup\n6b94659 Fix all identified security vulnerabilities and complete comprehensive test suite\n2784703 Refactor cproj to use current working directory for project context\na09a0e6 Fix critical security vulnerabilities and add comprehensive test suite\n1e4a349 Fix .cproj_review.json file location\n5b02231 Fix worktree creation to use current git repository\n7196ed9 Add proper logging system with configurable log levels",
     "ticket": "",
     "arch_notes": "Python/TypeScript monorepo, REST APIs, PostgreSQL, Docker, AWS",
     "conventions": "PEP8 for Python, ESLint/Prettier for JS/TS, conventional commits",
