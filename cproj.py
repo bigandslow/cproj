@@ -789,8 +789,22 @@ class TerminalAutomation:
     """Terminal and editor automation"""
 
     @staticmethod
+    def _is_test_environment() -> bool:
+        """Check if we're running in a test environment"""
+        return (
+            'pytest' in sys.modules or
+            'PYTEST_CURRENT_TEST' in os.environ or
+            os.environ.get('CI') == 'true' or
+            'unittest' in sys.modules
+        )
+
+    @staticmethod
     def open_terminal(path: Path, title: str, terminal_app: str = 'Terminal'):
         """Open terminal at path with title"""
+        if TerminalAutomation._is_test_environment():
+            print(f"[TEST MODE] Would open terminal: {terminal_app} at {path} with title '{title}'")
+            return
+
         if platform.system() != 'Darwin':
             print(f"Terminal automation not supported on {platform.system()}")
             return
@@ -828,6 +842,10 @@ class TerminalAutomation:
     @staticmethod
     def open_editor(path: Path, editor: str):
         """Open editor at path"""
+        if TerminalAutomation._is_test_environment():
+            print(f"[TEST MODE] Would open editor: {editor} at {path}")
+            return
+
         if not editor or not shutil.which(editor):
             return
 
