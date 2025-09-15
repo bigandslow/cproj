@@ -1,115 +1,91 @@
-# Makefile for cproj development and installation
-
-.PHONY: help install uninstall test lint format clean dev-install pipx-install
+.PHONY: help install dev-install test test-security test-coverage lint format security-scan pre-commit clean docs build publish
 
 # Default target
-help:
-	@echo "🚀 cproj - Multi-project CLI with git worktree + uv"
-	@echo ""
-	@echo "Available commands:"
-	@echo "  install      - Install cproj using the standalone installer"
-	@echo "  uninstall    - Uninstall cproj"
-	@echo "  pipx-install - Install cproj using pipx (recommended for Python users)"
-	@echo "  dev-install  - Install in development mode"
-	@echo "  test         - Run tests"
-	@echo "  lint         - Run linting"
-	@echo "  format       - Format code"
-	@echo "  clean        - Clean build artifacts"
-	@echo ""
-	@echo "For first-time users, run: make install"
+help: ## Show this help message
+	@echo "Available targets:"
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
-# Standalone installation (default method)
-install:
-	@echo "Installing cproj using standalone installer..."
-	./install.sh
+install: ## Install the package
+	uv pip install .
 
-# Uninstall
-uninstall:
-	@echo "Uninstalling cproj..."
-	./uninstall.sh
+dev-install: ## Install development dependencies
+	uv sync --dev
 
-# Install via pipx (isolated Python environment)
-pipx-install:
-	@echo "Installing cproj via pipx..."
-	@if ! command -v pipx >/dev/null 2>&1; then \
-		echo "❌ pipx not found. Install with: python -m pip install pipx"; \
-		exit 1; \
-	fi
-	pipx install .
+test: ## Run all tests
+	uv run pytest
 
-# Development installation
-dev-install:
-	@echo "Installing cproj in development mode..."
-	pip install -e .[dev]
+test-security: ## Run only security tests
+	uv run pytest tests/test_security_fixes.py tests/test_onepassword_sanitization.py tests/test_review_code_security.py -v
 
-# Run tests
-test:
-	@echo "Running tests..."
-	python -m pytest test_cproj.py -v
+test-coverage: ## Run tests with coverage report
+	uv run pytest --cov=cproj --cov=claude_review_agents --cov-report=html --cov-report=term-missing
 
-# Run linting
-lint:
-	@echo "Running linting..."
-	@if command -v flake8 >/dev/null 2>&1; then \
-		flake8 cproj.py test_cproj.py; \
-	else \
-		echo "flake8 not found, install with: pip install flake8"; \
-	fi
-	@if command -v mypy >/dev/null 2>&1; then \
-		mypy cproj.py --ignore-missing-imports; \
-	else \
-		echo "mypy not found, install with: pip install mypy"; \
-	fi
+test-parallel: ## Run tests in parallel
+	uv run pytest -n auto
 
-# Format code
-format:
-	@echo "Formatting code..."
-	@if command -v black >/dev/null 2>&1; then \
-		black cproj.py test_cproj.py; \
-	else \
-		echo "black not found, install with: pip install black"; \
-	fi
+test-integration: ## Run integration tests
+	uv run pytest -m integration
 
-# Clean build artifacts
-clean:
-	@echo "Cleaning build artifacts..."
-	rm -rf build/
-	rm -rf dist/
-	rm -rf *.egg-info/
+lint: ## Run linting checks
+	uv run ruff check cproj.py claude_review_agents.py tests/
+	uv run mypy cproj.py claude_review_agents.py --ignore-missing-imports
+
+format: ## Format code
+	uv run ruff format cproj.py claude_review_agents.py tests/
+	uv run ruff check --fix cproj.py claude_review_agents.py tests/
+
+security-scan: ## Run security scans
+	uv run bandit -r cproj.py claude_review_agents.py
+	uv run safety check
+
+pre-commit: ## Run pre-commit hooks
+	pre-commit run --all-files
+
+pre-commit-install: ## Install pre-commit hooks
+	pre-commit install
+
+clean: ## Clean up temporary files
 	rm -rf __pycache__/
 	rm -rf .pytest_cache/
+	rm -rf htmlcov/
 	rm -rf .coverage
-	rm -rf .mypy_cache/
-	find . -name "*.pyc" -delete
-	find . -name "*.pyo" -delete
+	rm -rf coverage.xml
+	rm -rf coverage.json
+	rm -rf dist/
+	rm -rf build/
+	rm -rf *.egg-info/
 
-# Check installation
-check:
-	@echo "Checking cproj installation..."
-	@if command -v cproj >/dev/null 2>&1; then \
-		echo "✅ cproj is installed and available"; \
-		cproj --help | head -5; \
-	else \
-		echo "❌ cproj not found in PATH"; \
-		echo "Run 'make install' to install cproj"; \
-	fi
+docs: ## Generate documentation
+	@echo "Documentation generation not yet implemented"
 
-# Development tools check
-dev-check:
-	@echo "Checking development environment..."
-	@echo -n "Python 3.8+: "
-	@python3 -c "import sys; exit(0 if sys.version_info >= (3,8) else 1)" && echo "✅" || echo "❌"
-	@echo -n "git: "
-	@command -v git >/dev/null 2>&1 && echo "✅" || echo "❌"
-	@echo -n "gh (GitHub CLI): "
-	@command -v gh >/dev/null 2>&1 && echo "✅" || echo "❌ (optional)"
-	@echo -n "uv: "
-	@command -v uv >/dev/null 2>&1 && echo "✅" || echo "❌ (optional, will fallback to venv)"
-	@echo -n "op (1Password CLI): "
-	@command -v op >/dev/null 2>&1 && echo "✅" || echo "❌ (optional)"
+build: ## Build the package
+	uv build
 
-# Quick test that cproj works
-smoke-test:
-	@echo "Running smoke test..."
-	python3 cproj.py --help >/dev/null && echo "✅ cproj loads successfully" || echo "❌ cproj failed to load"
-	python3 cproj.py config --help >/dev/null && echo "✅ cproj config command works" || echo "❌ cproj config failed"
+publish: ## Publish to PyPI (requires authentication)
+	uv publish
+
+# Development workflow targets
+dev-setup: dev-install pre-commit-install ## Complete development setup
+
+check: lint test-security ## Quick checks before commit
+	@echo "✅ All checks passed!"
+
+ci: lint test security-scan ## Run full CI checks locally
+	@echo "✅ CI checks completed!"
+
+# Utility targets
+version: ## Show version information
+	@python -c "import cproj; print(f'cproj version: {getattr(cproj, \"__version__\", \"unknown\")}')"
+
+info: ## Show project information
+	@echo "Project: cproj"
+	@echo "Python: $(shell python --version)"
+	@echo "UV: $(shell uv --version 2>/dev/null || echo 'not installed')"
+	@echo "Git: $(shell git --version)"
+
+# Performance targets
+bench: ## Run performance benchmarks
+	@echo "Running CLI startup benchmark..."
+	@time python cproj.py --help > /dev/null
+	@echo "Running import time benchmark..."
+	@python -c "import time; start=time.time(); import cproj; print(f'Import time: {time.time()-start:.3f}s')"

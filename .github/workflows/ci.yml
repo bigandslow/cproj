@@ -1,0 +1,179 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+        exclude:
+          # Reduce matrix size for faster builds
+          - os: windows-latest
+            python-version: "3.9"
+          - os: windows-latest
+            python-version: "3.10"
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v2
+
+    - name: Install dependencies
+      run: |
+        uv sync --dev
+
+    - name: Run security tests
+      run: |
+        uv run pytest tests/test_security_fixes.py tests/test_onepassword_sanitization.py tests/test_review_code_security.py -v --tb=short
+
+    - name: Run core functionality tests
+      run: |
+        uv run pytest tests/test_cli_commands.py tests/test_git_operations.py tests/test_environment_setup.py -v --tb=short
+
+    - name: Run all tests with coverage
+      run: |
+        uv run pytest --cov=cproj --cov-report=xml --cov-report=term-missing
+
+    - name: Upload coverage to Codecov
+      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        fail_ci_if_error: true
+
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v2
+
+    - name: Install dependencies
+      run: |
+        uv sync --dev
+
+    - name: Run bandit security scan
+      run: |
+        uv run bandit -r cproj.py claude_review_agents.py -f json -o bandit-report.json || true
+        uv run bandit -r cproj.py claude_review_agents.py
+
+    - name: Run safety check
+      run: |
+        uv run safety check --json --output safety-report.json || true
+        uv run safety check
+
+    - name: Upload security reports
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: security-reports
+        path: |
+          bandit-report.json
+          safety-report.json
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v2
+
+    - name: Install dependencies
+      run: |
+        uv sync --dev
+
+    - name: Run ruff linting
+      run: |
+        uv run ruff check cproj.py claude_review_agents.py tests/
+
+    - name: Run ruff formatting check
+      run: |
+        uv run ruff format --check cproj.py claude_review_agents.py tests/
+
+    - name: Run mypy type checking
+      run: |
+        uv run mypy cproj.py claude_review_agents.py --ignore-missing-imports
+
+  integration-test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v2
+
+    - name: Set up Git
+      run: |
+        git config --global user.name "Test User"
+        git config --global user.email "test@example.com"
+
+    - name: Install dependencies
+      run: |
+        uv sync --dev
+
+    - name: Run integration tests
+      run: |
+        uv run pytest tests/test_basic_functionality.py tests/test_exception_handling.py -v --tb=short
+
+    - name: Test CLI functionality
+      run: |
+        # Test basic CLI commands don't crash
+        python cproj.py --help
+        python cproj.py setup --help || true
+        python cproj.py create --help || true
+
+  performance-test:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v2
+
+    - name: Install dependencies
+      run: |
+        uv sync --dev
+
+    - name: Run performance benchmarks
+      run: |
+        # Basic performance test - CLI startup time
+        time python cproj.py --help > /dev/null
+
+        # Test import time
+        python -c "import time; start=time.time(); import cproj; print(f'Import time: {time.time()-start:.3f}s')"
