@@ -217,18 +217,24 @@ class GitWorktree:
         """Check if a branch is already checked out in a worktree"""
         try:
             # List all worktrees and check if any have this branch checked out
-            result = self._run_git(['worktree', 'list', '--porcelain'], capture_output=True, text=True)
+            result = self._run_git(
+                ['worktree', 'list', '--porcelain'], capture_output=True, text=True
+            )
             current_branch = None
             for line in result.stdout.strip().split('\n'):
                 if line.startswith('branch '):
-                    current_branch = line.split('refs/heads/', 1)[1] if 'refs/heads/' in line else None
+                    current_branch = (
+                        line.split('refs/heads/', 1)[1] if 'refs/heads/' in line else None
+                    )
                     if current_branch == branch:
                         return True
             return False
         except subprocess.CalledProcessError:
             return False
 
-    def create_worktree(self, worktree_path: Path, branch: str, base_branch: str, interactive: bool = True) -> Path:
+    def create_worktree(
+        self, worktree_path: Path, branch: str, base_branch: str, interactive: bool = True
+    ) -> Path:
         """Create a new worktree"""
         worktree_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -255,11 +261,16 @@ class GitWorktree:
                                 print("❌ Branch name cannot be empty")
                                 continue
                         elif choice == '2':
-                            raise CprojError(f"Branch '{branch}' is checked out elsewhere. Use 'git worktree list' to find it.")
+                            raise CprojError(
+                                f"Branch '{branch}' is checked out elsewhere. "
+                                f"Use 'git worktree list' to find it."
+                            )
                         elif choice == '3':
                             # Force create new worktree, detaching the branch from current location
                             try:
-                                self._run_git(['worktree', 'add', '--force', str(worktree_path), branch])
+                                self._run_git(
+                                    ['worktree', 'add', '--force', str(worktree_path), branch]
+                                )
                                 return worktree_path
                             except subprocess.CalledProcessError as e:
                                 raise CprojError(f"Failed to force create worktree: {e}")
@@ -269,7 +280,10 @@ class GitWorktree:
                             print("❌ Please enter 1, 2, 3, or 4")
                             continue
                 else:
-                    raise CprojError(f"Branch '{branch}' is already checked out. Use --force to override or choose a different branch name.")
+                    raise CprojError(
+                        f"Branch '{branch}' is already checked out. "
+                        f"Use --force to override or choose a different branch name."
+                    )
 
             # Branch exists but not checked out, use it
             try:
@@ -382,7 +396,9 @@ class GitWorktree:
 
         return None
 
-    def _run_git(self, args: List[str], cwd: Optional[Path] = None, **kwargs) -> subprocess.CompletedProcess:
+    def _run_git(
+        self, args: List[str], cwd: Optional[Path] = None, **kwargs
+    ) -> subprocess.CompletedProcess:
         """Run git command"""
         cmd = ['git', '-C', str(cwd or self.repo_path)] + args
         return subprocess.run(cmd, check=True, **kwargs)
@@ -526,7 +542,10 @@ class EnvironmentSetup:
 
     def _has_gradle(self) -> bool:
         """Check if Gradle build files exist"""
-        return (self.worktree_path / 'build.gradle').exists() or (self.worktree_path / 'build.gradle.kts').exists()
+        return (
+            (self.worktree_path / 'build.gradle').exists() or
+            (self.worktree_path / 'build.gradle.kts').exists()
+        )
 
     def _has_uv(self) -> bool:
         """Check if uv is available"""
@@ -538,7 +557,11 @@ class EnvironmentSetup:
 
     def detect_environments(self) -> Dict[str, Any]:
         """Detect available environments"""
-        python_files = (self._has_pyproject_toml() or self._has_requirements_txt() or self._has_setup_py())
+        python_files = (
+            self._has_pyproject_toml() or
+            self._has_requirements_txt() or
+            self._has_setup_py()
+        )
         node_files = self._has_package_json()
         java_files = (self._has_maven() or self._has_gradle())
 
@@ -571,12 +594,18 @@ class EnvironmentSetup:
 
         # Filter out common non-project directories
         exclude_dirs = {'.venv', 'venv', 'node_modules', '.git', '__pycache__', 'dist', 'build'}
-        pyproject_paths = [p for p in pyproject_paths if not any(ex in p.parts for ex in exclude_dirs)]
-        requirements_paths = [p for p in requirements_paths if not any(ex in p.parts for ex in exclude_dirs)]
+        pyproject_paths = [
+            p for p in pyproject_paths if not any(ex in p.parts for ex in exclude_dirs)
+        ]
+        requirements_paths = [
+            p for p in requirements_paths if not any(ex in p.parts for ex in exclude_dirs)
+        ]
 
         return pyproject_paths, requirements_paths
 
-    def setup_python(self, auto_install: bool = False, shared_venv: bool = False, repo_path: Path = None) -> Dict:
+    def setup_python(
+        self, auto_install: bool = False, shared_venv: bool = False, repo_path: Path = None
+    ) -> Dict:
         """Setup Python environment with uv or venv"""
         env_data = {
             "manager": "none",
@@ -767,7 +796,11 @@ class EnvironmentSetup:
         # Copy files, preserving directory structure
         for source_file in found_files:
             # Skip hidden directories and common build/cache dirs
-            if any(part.startswith('.') and part not in ['.env', '.env.local', '.env.development', '.env.test', '.env.production', '.env.example']
+            allowed_env_files = [
+                '.env', '.env.local', '.env.development',
+                '.env.test', '.env.production', '.env.example'
+            ]
+            if any(part.startswith('.') and part not in allowed_env_files
                    for part in source_file.relative_to(repo_path).parts[:-1]):
                 continue
 
@@ -877,7 +910,9 @@ class GitHubIntegration:
             print("GitHub authentication required.")
 
             # Check if token available in 1Password
-            token_ref = input("1Password GitHub token reference (or press Enter to login interactively): ").strip()
+            token_ref = input(
+                "1Password GitHub token reference (or press Enter to login interactively): "
+            ).strip()
 
             if token_ref and OnePasswordIntegration.is_available():
                 token = OnePasswordIntegration.get_secret(token_ref)
@@ -902,7 +937,9 @@ class GitHubIntegration:
                 return False
 
     @staticmethod
-    def create_pr(title: str, body: str, draft: bool = True, assignees: Optional[List[str]] = None) -> Optional[str]:
+    def create_pr(
+        title: str, body: str, draft: bool = True, assignees: Optional[List[str]] = None
+    ) -> Optional[str]:
         """Create a pull request"""
         if not GitHubIntegration.ensure_auth():
             return None
@@ -1087,7 +1124,9 @@ class CprojCLI:
                     print("✅ API key stored securely in .env.linear")
                     print("💡 This file is automatically added to .gitignore")
 
-        github_default_reviewers = input("Default GitHub reviewers (comma-separated, optional): ").strip()
+        github_default_reviewers = input(
+            "Default GitHub reviewers (comma-separated, optional): "
+        ).strip()
         if github_default_reviewers:
             config['github_reviewers'] = [r.strip() for r in github_default_reviewers.split(',')]
 
@@ -1100,13 +1139,19 @@ class CprojCLI:
         print("🤖 Claude IDE Integration")
         print("-" * 50)
 
-        claude_symlink = input("Auto-create CLAUDE.md/.cursorrules symlinks in worktrees? [Y/n]: ").strip().lower()
+        claude_symlink = input(
+            "Auto-create CLAUDE.md/.cursorrules symlinks in worktrees? [Y/n]: "
+        ).strip().lower()
         config['claude_symlink_default'] = 'no' if claude_symlink in ['n', 'no'] else 'yes'
 
-        claude_nvm = input("Auto-create nvm setup scripts for Claude CLI in worktrees? [Y/n]: ").strip().lower()
+        claude_nvm = input(
+            "Auto-create nvm setup scripts for Claude CLI in worktrees? [Y/n]: "
+        ).strip().lower()
         config['claude_nvm_default'] = 'no' if claude_nvm in ['n', 'no'] else 'yes'
 
-        claude_workspace = input("Auto-setup Claude workspace with commands and agents in worktrees? [Y/n]: ").strip().lower()
+        claude_workspace = input(
+            "Auto-setup Claude workspace with commands and agents in worktrees? [Y/n]: "
+        ).strip().lower()
         config['claude_workspace_default'] = 'no' if claude_workspace in ['n', 'no'] else 'yes'
 
         print()
@@ -1158,18 +1203,24 @@ class CprojCLI:
         parser.add_argument('--repo', help='Repository path')
         parser.add_argument('--base', help='Base branch')
         parser.add_argument('--temp-root', help='Temp root for worktrees')
-        parser.add_argument('--terminal', choices=['Terminal', 'iTerm', 'none'], help='Terminal app')
+        parser.add_argument(
+            '--terminal', choices=['Terminal', 'iTerm', 'none'], help='Terminal app'
+        )
         parser.add_argument('--editor', help='Editor command')
         parser.add_argument('--yes', action='store_true', help='Skip confirmations')
         parser.add_argument('--verbose', action='store_true', help='Verbose output')
         parser.add_argument('--json', action='store_true', help='JSON output')
-        parser.add_argument('--log-level', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
-                          default='INFO', help='Set logging level (default: INFO)')
+        parser.add_argument(
+            '--log-level', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
+            default='INFO', help='Set logging level (default: INFO)'
+        )
 
         subparsers = parser.add_subparsers(dest='command', help='Commands')
 
         # init command
-        init_parser = subparsers.add_parser('init', aliases=['new', 'start'], help='Initialize project')
+        init_parser = subparsers.add_parser(
+            'init', aliases=['new', 'start'], help='Initialize project'
+        )
         init_parser.add_argument('--name', help='Project name')
         init_parser.add_argument('--clone', help='Clone URL if repo not local')
 
@@ -1180,26 +1231,52 @@ class CprojCLI:
         create_parser = wt_sub.add_parser('create', help='Create worktree')
         create_parser.add_argument('--branch', help='Branch name')
         create_parser.add_argument('--linear', help='Linear issue URL')
-        create_parser.add_argument('--python-install', action='store_true', help='Auto-install Python deps')
-        create_parser.add_argument('--shared-venv', action='store_true', help='Link to main repo venv instead of creating new one')
-        create_parser.add_argument('--copy-env', action='store_true', help='Copy .env files from main repo')
-        create_parser.add_argument('--node-install', action='store_true', help='Auto-install Node deps')
+        create_parser.add_argument(
+            '--python-install', action='store_true', help='Auto-install Python deps'
+        )
+        create_parser.add_argument(
+            '--shared-venv', action='store_true',
+            help='Link to main repo venv instead of creating new one'
+        )
+        create_parser.add_argument(
+            '--copy-env', action='store_true', help='Copy .env files from main repo'
+        )
+        create_parser.add_argument(
+            '--node-install', action='store_true', help='Auto-install Node deps'
+        )
         create_parser.add_argument('--java-build', action='store_true', help='Auto-build Java')
-        create_parser.add_argument('--open-editor', action='store_true', help='Open editor after creating worktree')
-        create_parser.add_argument('--no-terminal', action='store_true', help='Do not open terminal after creating worktree')
-        create_parser.add_argument('--setup-claude', action='store_true', help='Force setup Claude workspace')
-        create_parser.add_argument('--no-claude', action='store_true', help='Skip Claude workspace setup')
+        create_parser.add_argument(
+            '--open-editor', action='store_true', help='Open editor after creating worktree'
+        )
+        create_parser.add_argument(
+            '--no-terminal', action='store_true',
+            help='Do not open terminal after creating worktree'
+        )
+        create_parser.add_argument(
+            '--setup-claude', action='store_true', help='Force setup Claude workspace'
+        )
+        create_parser.add_argument(
+            '--no-claude', action='store_true', help='Skip Claude workspace setup'
+        )
 
         # review command
         review_parser = subparsers.add_parser('review', help='Review commands')
         review_sub = review_parser.add_subparsers(dest='review_command')
 
         open_parser = review_sub.add_parser('open', help='Open review')
-        open_parser.add_argument('--draft', action='store_true', help='Create draft PR (default is ready for review)')
-        open_parser.add_argument('--ready', action='store_true', help='[Deprecated] Create ready PR (now default)')
+        open_parser.add_argument(
+            '--draft', action='store_true', help='Create draft PR (default is ready for review)'
+        )
+        open_parser.add_argument(
+            '--ready', action='store_true', help='[Deprecated] Create ready PR (now default)'
+        )
         open_parser.add_argument('--assign', help='Assignees (comma-separated)')
-        open_parser.add_argument('--no-push', action='store_true', help='Don\'t push branch')
-        open_parser.add_argument('--no-agents', action='store_true', help='Skip automated review agents')
+        open_parser.add_argument(
+            '--no-push', action='store_true', help='Don\'t push branch'
+        )
+        open_parser.add_argument(
+            '--no-agents', action='store_true', help='Skip automated review agents'
+        )
 
         # Legacy 'cproj review agents' removed in favor of 'review-code' command
         # Migration: Use 'review-code' for AI-powered code reviews with enhanced security
@@ -1207,11 +1284,21 @@ class CprojCLI:
 
         # merge command
         merge_parser = subparsers.add_parser('merge', help='Merge and cleanup')
-        merge_parser.add_argument('--squash', action='store_true', default=True, help='Squash merge')
-        merge_parser.add_argument('--merge', dest='squash', action='store_false', help='Merge commit')
-        merge_parser.add_argument('--delete-remote', action='store_true', help='Delete remote branch')
-        merge_parser.add_argument('--keep-worktree', action='store_true', help='Keep worktree')
-        merge_parser.add_argument('--force', action='store_true', help='Force merge even if dirty')
+        merge_parser.add_argument(
+            '--squash', action='store_true', default=True, help='Squash merge'
+        )
+        merge_parser.add_argument(
+            '--merge', dest='squash', action='store_false', help='Merge commit'
+        )
+        merge_parser.add_argument(
+            '--delete-remote', action='store_true', help='Delete remote branch'
+        )
+        merge_parser.add_argument(
+            '--keep-worktree', action='store_true', help='Keep worktree'
+        )
+        merge_parser.add_argument(
+            '--force', action='store_true', help='Force merge even if dirty'
+        )
 
         # list command
         subparsers.add_parser('list', aliases=['ls'], help='List worktrees')
@@ -1223,9 +1310,15 @@ class CprojCLI:
         # cleanup command
         cleanup_parser = subparsers.add_parser('cleanup', help='Cleanup worktrees')
         cleanup_parser.add_argument('--older-than', type=int, help='Days old')
-        cleanup_parser.add_argument('--merged-only', action='store_true', help='Only merged branches')
-        cleanup_parser.add_argument('--dry-run', action='store_true', help='Show what would be done')
-        cleanup_parser.add_argument('--force', action='store_true', help='Force removal of dirty worktrees')
+        cleanup_parser.add_argument(
+            '--merged-only', action='store_true', help='Only merged branches'
+        )
+        cleanup_parser.add_argument(
+            '--dry-run', action='store_true', help='Show what would be done'
+        )
+        cleanup_parser.add_argument(
+            '--force', action='store_true', help='Force removal of dirty worktrees'
+        )
 
         # open command
         open_parser = subparsers.add_parser('open', help='Open workspace')
@@ -1513,10 +1606,14 @@ class CprojCLI:
             print("Claude CLI requires Node.js LTS to run properly.")
 
             if default_action == 'yes':
-                response = input("Create nvm setup script for this worktree? [Y/n]: ").strip().lower()
+                response = input(
+                    "Create nvm setup script for this worktree? [Y/n]: "
+                ).strip().lower()
                 setup_nvm = response in ('', 'y', 'yes')
             else:
-                response = input("Create nvm setup script for this worktree? [y/N]: ").strip().lower()
+                response = input(
+                    "Create nvm setup script for this worktree? [y/N]: "
+                ).strip().lower()
                 setup_nvm = response in ('y', 'yes')
 
         if setup_nvm:
@@ -1547,7 +1644,9 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                 setup_script.chmod(0o755)
 
                 print("✅ Created .cproj/setup-claude.sh script")
-                print("💡 Run 'source .cproj/setup-claude.sh' in your terminal to activate Node.js LTS")
+                print(
+                    "💡 Run 'source .cproj/setup-claude.sh' in your terminal to activate Node.js LTS"
+                )
 
             except OSError as e:
                 print(f"⚠️  Failed to create nvm setup script: {e}")
@@ -1684,7 +1783,10 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
 
                 print("✅ Setup Claude workspace configuration")
                 print("💡 Available commands: add-ticket, review-code")
-                print("💡 Available agents: product-manager, ux-designer, senior-software-engineer, code-reviewer")
+                print(
+                    "💡 Available agents: product-manager, ux-designer, "
+                    "senior-software-engineer, code-reviewer"
+                )
 
             except (OSError, shutil.Error) as e:
                 print(f"⚠️  Failed to setup Claude workspace: {e}")
@@ -1752,7 +1854,9 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         print("   2. Right-click on the password/secret field")
         print("   3. Select 'Copy Secret Reference'")
         print()
-        reference = input("Enter 1Password reference (e.g., op://Private/linear-api-key/password): ").strip()
+        reference = input(
+            "Enter 1Password reference (e.g., op://Private/linear-api-key/password): "
+        ).strip()
         if reference:
             # Strip quotes that 1Password includes in "Copy Secret Reference"
             reference = reference.strip('"\'')
@@ -2410,7 +2514,9 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                                     if "is dirty" in error_msg and not args.force:
                                         print(f"❌ Failed to remove {Path(wt['path']).name}: Worktree is dirty (has uncommitted changes)")
                                         if self._is_interactive():
-                                            force_choice = input(f"Force removal of dirty worktree {Path(wt['path']).name}? [y/N]: ").strip().lower()
+                                            force_choice = input(
+                                                f"Force removal of dirty worktree {Path(wt['path']).name}? [y/N]: "
+                                            ).strip().lower()
                                             if force_choice in ['y', 'yes']:
                                                 try:
                                                     git.remove_worktree(Path(wt['path']), force=True)
