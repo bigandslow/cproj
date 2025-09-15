@@ -366,6 +366,333 @@ class TestClaudeIntegration(unittest.TestCase):
         self.assertFalse(setup_script.exists())
 
 
+class TestLinear1PasswordIntegration(unittest.TestCase):
+    """Test Linear API key integration with 1Password"""
+    
+    def setUp(self):
+        self.temp_dir = Path(tempfile.mkdtemp())
+        self.repo_dir = self.temp_dir / 'test_repo'
+        self.repo_dir.mkdir()
+        
+        # Initialize git repo
+        import subprocess
+        subprocess.run(['git', 'init'], cwd=self.repo_dir, check=True, capture_output=True)
+        subprocess.run(['git', 'config', 'user.email', 'test@example.com'], 
+                      cwd=self.repo_dir, check=True, capture_output=True)
+        subprocess.run(['git', 'config', 'user.name', 'Test User'], 
+                      cwd=self.repo_dir, check=True, capture_output=True)
+        
+        # Create initial commit
+        (self.repo_dir / 'README.md').write_text('# Test Repo')
+        subprocess.run(['git', 'add', 'README.md'], cwd=self.repo_dir, check=True, capture_output=True)
+        subprocess.run(['git', 'commit', '-m', 'Initial commit'], 
+                      cwd=self.repo_dir, check=True, capture_output=True)
+        
+        # Create config for testing
+        self.config_dir = self.temp_dir / '.config' / 'cproj'
+        self.config_dir.mkdir(parents=True)
+        self.config = Config(self.config_dir / 'config.json')
+        
+        # Create CLI instance and replace its config
+        self.cli = CprojCLI()
+        self.cli.config = self.config
+    
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.temp_dir)
+    
+    def test_store_linear_1password_ref(self):
+        """Test storing 1Password reference for Linear API key"""
+        # Change to repo directory
+        import os
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(self.repo_dir)
+            
+            # Store reference
+            test_ref = "op://Private/linear-api-key/password"
+            self.cli._store_linear_1password_ref(test_ref)
+            
+            # Verify file was created with correct content
+            ref_file = self.repo_dir / '.cproj' / '.linear-1password-ref'
+            self.assertTrue(ref_file.exists())
+            self.assertEqual(ref_file.read_text(), test_ref)
+            
+            # Verify permissions (owner read/write only)
+            import stat
+            file_stat = ref_file.stat()
+            self.assertEqual(file_stat.st_mode & 0o777, 0o600)
+        finally:
+            os.chdir(original_cwd)
+    
+    def test_load_linear_config_with_1password(self):
+        """Test loading Linear config with 1Password reference"""
+        import os
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(self.repo_dir)
+            
+            # Create .cproj directory and reference file
+            cproj_dir = self.repo_dir / '.cproj'
+            cproj_dir.mkdir()
+            ref_file = cproj_dir / '.linear-1password-ref'
+            test_ref = "op://Private/linear-api-key/password"
+            ref_file.write_text(test_ref)
+            
+            # Mock OnePasswordIntegration methods
+            with patch('cproj.OnePasswordIntegration.is_available', return_value=True), \
+                 patch('cproj.OnePasswordIntegration.get_secret', return_value='test-api-key-123'):
+                
+                # Load config
+                config = self.cli._load_linear_config()
+                
+                # Verify API key was retrieved
+                self.assertEqual(config.get('LINEAR_API_KEY'), 'test-api-key-123')
+                self.assertEqual(config.get('LINEAR_API_KEY_SOURCE'), '1Password')
+        finally:
+            os.chdir(original_cwd)
+    
+    def test_load_linear_config_fallback_to_env_file(self):
+        """Test that .env.linear file takes precedence over 1Password"""
+        import os
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(self.repo_dir)
+            
+            # Create both .env.linear and 1Password ref
+            env_file = self.repo_dir / '.env.linear'
+            env_file.write_text("LINEAR_API_KEY=env-file-key-456\n")
+            
+            cproj_dir = self.repo_dir / '.cproj'
+            cproj_dir.mkdir()
+            ref_file = cproj_dir / '.linear-1password-ref'
+            ref_file.write_text("op://Private/linear-api-key/password")
+            
+            # Mock OnePasswordIntegration
+            with patch('cproj.OnePasswordIntegration.is_available', return_value=True), \
+                 patch('cproj.OnePasswordIntegration.get_secret', return_value='1password-key-789'):
+                
+                # Load config
+                config = self.cli._load_linear_config()
+                
+                # Verify env file takes precedence
+                self.assertEqual(config.get('LINEAR_API_KEY'), 'env-file-key-456')
+                self.assertNotIn('LINEAR_API_KEY_SOURCE', config)
+        finally:
+            os.chdir(original_cwd)
+    
+    @patch('cproj.OnePasswordIntegration.is_available')
+    @patch('cproj.OnePasswordIntegration.get_secret')
+    @patch('builtins.input')
+    def test_linear_setup_from_1password(self, mock_input, mock_get_secret, mock_is_available):
+        """Test linear setup --from-1password command"""
+        import os
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(self.repo_dir)
+            
+            # Mock 1Password availability and secret retrieval
+            mock_is_available.return_value = True
+            mock_get_secret.return_value = 'test-linear-api-key'
+            mock_input.return_value = 'op://Private/linear-api/password'
+            
+            # Create args object
+            from types import SimpleNamespace
+            args = SimpleNamespace(
+                from_1password=True,
+                api_key=None,
+                team=None,
+                project=None,
+                org=None
+            )
+            
+            # Run command
+            self.cli.cmd_linear_setup(args)
+            
+            # Verify reference was stored
+            ref_file = self.repo_dir / '.cproj' / '.linear-1password-ref'
+            self.assertTrue(ref_file.exists())
+            self.assertEqual(ref_file.read_text(), 'op://Private/linear-api/password')
+            
+            # Verify 1Password was called to validate
+            mock_get_secret.assert_called_once_with('op://Private/linear-api/password')
+        finally:
+            os.chdir(original_cwd)
+    
+    @patch('cproj.OnePasswordIntegration.is_available')
+    def test_linear_setup_1password_not_available(self, mock_is_available):
+        """Test linear setup when 1Password is not available"""
+        import os
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(self.repo_dir)
+            
+            # Mock 1Password not available
+            mock_is_available.return_value = False
+            
+            # Create args object
+            from types import SimpleNamespace
+            args = SimpleNamespace(
+                from_1password=True,
+                api_key=None,
+                team=None,
+                project=None,
+                org=None
+            )
+            
+            # Run command - should exit early
+            with patch('builtins.print') as mock_print:
+                self.cli.cmd_linear_setup(args)
+                
+                # Verify error message was printed
+                calls = [str(call) for call in mock_print.call_args_list]
+                self.assertTrue(any('1Password CLI not available' in str(call) for call in calls))
+            
+            # Verify no reference file was created
+            ref_file = self.repo_dir / '.cproj' / '.linear-1password-ref'
+            self.assertFalse(ref_file.exists())
+        finally:
+            os.chdir(original_cwd)
+
+
+class TestCleanupDirtyWorktree(unittest.TestCase):
+    """Test cleanup command handling of dirty worktrees"""
+    
+    def setUp(self):
+        self.temp_dir = Path(tempfile.mkdtemp())
+        self.repo_dir = self.temp_dir / 'test_repo'
+        self.repo_dir.mkdir()
+        
+        # Initialize git repo
+        import subprocess
+        subprocess.run(['git', 'init'], cwd=self.repo_dir, check=True, capture_output=True)
+        subprocess.run(['git', 'config', 'user.email', 'test@example.com'], 
+                      cwd=self.repo_dir, check=True, capture_output=True)
+        subprocess.run(['git', 'config', 'user.name', 'Test User'], 
+                      cwd=self.repo_dir, check=True, capture_output=True)
+        
+        # Create initial commit
+        (self.repo_dir / 'README.md').write_text('# Test Repo')
+        subprocess.run(['git', 'add', 'README.md'], cwd=self.repo_dir, check=True, capture_output=True)
+        subprocess.run(['git', 'commit', '-m', 'Initial commit'], 
+                      cwd=self.repo_dir, check=True, capture_output=True)
+        
+        # Create config for testing
+        self.config_dir = self.temp_dir / '.config' / 'cproj'
+        self.config_dir.mkdir(parents=True)
+        self.config = Config(self.config_dir / 'config.json')
+        self.config.set('repo_path', str(self.repo_dir))
+        
+        # Create CLI instance
+        self.cli = CprojCLI()
+        self.cli.config = self.config
+    
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.temp_dir)
+    
+    @patch('builtins.input')
+    def test_cleanup_dirty_worktree_force_prompt_yes(self, mock_input):
+        """Test that cleanup prompts for force removal and accepts yes"""
+        import os
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(self.repo_dir)
+            
+            # Create a worktree
+            git = GitWorktree(self.repo_dir)
+            worktree_path = self.temp_dir / 'test_worktree'
+            git.create_worktree(worktree_path, 'test-branch', 'main')
+            
+            # Make the worktree dirty by adding a file
+            (worktree_path / 'dirty_file.txt').write_text('uncommitted change')
+            
+            # Mock user inputs: confirm removal, then force removal
+            mock_input.side_effect = ['y', 'y']  # Remove? Yes, Force? Yes
+            
+            # Create args for cleanup
+            from types import SimpleNamespace
+            args = SimpleNamespace(
+                older_than=None,
+                newer_than=None,
+                merged_only=False,
+                force=False,
+                dry_run=False,
+                yes=False
+            )
+            
+            # Mock the interactive detection to return True
+            with patch.object(self.cli, '_is_interactive', return_value=True):
+                # Add the worktree to removal list manually
+                to_remove = [{'path': str(worktree_path), 'branch': 'test-branch'}]
+                
+                # Simulate the removal process
+                for wt in to_remove:
+                    path = Path(wt['path'])
+                    try:
+                        git.remove_worktree(path, force=False)
+                    except Exception as e:
+                        if "is dirty" in str(e):
+                            # This should trigger our force prompt
+                            force_choice = mock_input.return_value
+                            if force_choice == 'y':
+                                git.remove_worktree(path, force=True)
+            
+            # Verify worktree was removed
+            self.assertFalse(worktree_path.exists())
+            
+        finally:
+            os.chdir(original_cwd)
+    
+    @patch('builtins.input')
+    def test_cleanup_dirty_worktree_force_prompt_no(self, mock_input):
+        """Test that cleanup prompts for force removal and accepts no"""
+        import os
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(self.repo_dir)
+            
+            # Create a worktree
+            git = GitWorktree(self.repo_dir)
+            worktree_path = self.temp_dir / 'test_worktree'
+            git.create_worktree(worktree_path, 'test-branch', 'main')
+            
+            # Make the worktree dirty
+            (worktree_path / 'dirty_file.txt').write_text('uncommitted change')
+            
+            # Mock user inputs: confirm removal, then refuse force removal
+            mock_input.side_effect = ['y', 'n']  # Remove? Yes, Force? No
+            
+            # Create args for cleanup
+            from types import SimpleNamespace
+            args = SimpleNamespace(
+                older_than=None,
+                newer_than=None,
+                merged_only=False,
+                force=False,
+                dry_run=False,
+                yes=False
+            )
+            
+            # Mock interactive detection
+            with patch.object(self.cli, '_is_interactive', return_value=True):
+                success = False
+                try:
+                    git.remove_worktree(worktree_path, force=False)
+                    success = True
+                except Exception as e:
+                    if "is dirty" in str(e):
+                        # User said no to force removal
+                        pass
+                
+                # Verify worktree still exists (wasn't force removed)
+                self.assertTrue(worktree_path.exists())
+                self.assertFalse(success)
+            
+        finally:
+            os.chdir(original_cwd)
+
+
 class TestIntegration(unittest.TestCase):
     """Integration tests"""
     

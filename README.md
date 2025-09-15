@@ -1,16 +1,36 @@
-# cproj - Multi-project CLI with git worktree + uv
+# cproj - Intelligent Project Workflow Manager
 
-A production-ready CLI tool for managing parallel project work using Git worktrees with environment isolation.
+A powerful CLI tool that streamlines software development workflows using Git worktrees, AI-powered agents, and automated project management. Create isolated workspaces, generate comprehensive tickets, perform AI code reviews, and manage the complete development lifecycle.
 
-## Features
+## Overview
 
-- **Git worktree-based isolation** - Work on multiple branches simultaneously without conflicts
-- **Environment management** - Automatic Python (via `uv`), Node, and Java environment setup
-- **Metadata tracking** - Persistent `.agent.json` files track workspace state
-- **GitHub integration** - Create and merge PRs using `gh` CLI
-- **Linear integration** - Link workspaces to Linear issues
-- **Terminal automation** - Auto-open Terminal/iTerm and editors (macOS)
-- **Cleanup tools** - Remove stale worktrees automatically
+cproj transforms how you work on software projects by:
+- **Creating isolated workspaces** for each feature/bug using Git worktrees
+- **Generating detailed Linear tickets** using AI agents (product manager, UX designer, engineer)  
+- **Performing comprehensive code reviews** with specialized AI agents
+- **Automating environment setup** (Python/uv, Node.js, Java)
+- **Managing the complete workflow** from idea to merged code
+
+## Key Features
+
+### 🚀 **Intelligent Workflow Automation**
+- **AI-powered ticket creation** with `add-ticket` command using specialized agents
+- **Comprehensive code reviews** with `review-code` command and security analysis
+- **Smart workspace management** with automatic environment detection
+
+### 🔧 **Development Environment**
+- **Git worktree isolation** - Work on multiple branches simultaneously
+- **Automatic environment setup** - Python (uv), Node.js (nvm), Java builds
+- **IDE integration** - Auto-launch terminals and editors on macOS
+
+### 📊 **Project Management** 
+- **Linear integration** - Create detailed tickets with AI assistance
+- **GitHub integration** - Automated PR creation and merging with `gh` CLI
+- **Progress tracking** - Persistent workspace metadata and status
+
+### 🧹 **Maintenance & Cleanup**
+- **Intelligent cleanup** - Remove old/merged worktrees with `--force` support
+- **Workspace organization** - Clean `.cproj` directory structure
 
 ## Installation
 
@@ -18,7 +38,7 @@ A production-ready CLI tool for managing parallel project work using Git worktre
 ```bash
 # Clone or download this repository
 git clone <repository-url>
-cd cenv
+cd cproj
 
 # Run the installer (creates isolated environment)
 make install
@@ -34,7 +54,7 @@ export PATH="$HOME/.local/bin:$PATH"
 pipx install .
 
 # Or from GitHub directly
-pipx install git+https://github.com/user/cenv.git
+pipx install git+https://github.com/user/cproj.git
 ```
 
 ### Option 3: pip (Development)
@@ -50,103 +70,196 @@ make uninstall
 # or directly: ./uninstall.sh
 ```
 
-## Quick Start
+## Complete Development Workflow
 
-1. **Initialize a project (Interactive)**
+cproj provides a complete development workflow from initial idea to merged code. Here's the step-by-step process:
+
+### 1️⃣ **Initial Setup**
 ```bash
+# Initialize cproj configuration (one-time setup)
 cproj init
-# Follow the interactive prompts to configure your project
+# Configure Linear integration, GitHub reviewers, environment preferences
 ```
 
-**Or with command-line arguments:**
+### 2️⃣ **Idea to Ticket (AI-Powered)**
 ```bash
-cproj init --repo ~/dev/my-project --name "My Project"
+# Generate comprehensive Linear tickets using AI agents
+add-ticket "Add user authentication system"
+```
+This command uses specialized AI agents to create detailed tickets:
+- **Product Manager Agent**: Turns high-level ideas into crisp PRDs
+- **UX Designer Agent**: Creates user-centric design specifications  
+- **Senior Engineer Agent**: Plans technical implementation with tests
+
+### 3️⃣ **Create Development Workspace**
+```bash
+# Create isolated worktree for your feature
+cproj w create --branch feature/user-auth
+```
+Automatically sets up:
+- ✅ Git worktree with new branch
+- ✅ Python environment (uv), Node.js (nvm), Java build
+- ✅ Terminal and IDE integration
+- ✅ Workspace metadata tracking
+
+### 4️⃣ **Development & Testing**
+```bash
+# Work in your isolated environment
+# Make changes, write tests, commit code
+git add . && git commit -m "Implement user authentication"
 ```
 
-2. **Create a new workspace**
+### 5️⃣ **AI-Powered Code Review**
 ```bash
-cproj worktree create --branch feature/ABC-123-awesome --linear https://linear.app/...
+# Run comprehensive AI code review before submitting
+review-code
+```
+Specialized review agents analyze:
+- **Senior Developer**: Code quality, architecture, best practices
+- **QA Engineer**: Test coverage, edge cases, quality assurance  
+- **Security Reviewer**: Vulnerability assessment, OWASP compliance
+
+Options for targeted reviews:
+```bash
+review-code --security-only    # Security review only
+review-code --full            # Review entire codebase
+review-code --qa-only         # QA review only
 ```
 
-3. **Open for review**
+### 6️⃣ **Create Pull Request**
 ```bash
+# Open PR for human review
 cproj review open
 ```
+Automatically:
+- ✅ Pushes branch to remote
+- ✅ Creates GitHub PR with description
+- ✅ Assigns configured reviewers
+- ✅ Links to Linear ticket
 
-4. **Merge and cleanup**
+### 7️⃣ **Final Review & Merge**
 ```bash
-cproj merge --squash --delete-remote
+# After approval, merge and cleanup
+cproj merge
+```
+Handles the complete merge process:
+- ✅ Merges PR (with squash option)
+- ✅ Deletes remote branch
+- ✅ Removes local worktree
+- ✅ Updates workspace metadata
+
+### 🧹 **Maintenance & Cleanup**
+```bash
+# Clean up old/stale worktrees
+cproj cleanup                    # Interactive cleanup
+cproj cleanup --older-than 14   # Remove worktrees older than 14 days
+cproj cleanup --force           # Force remove dirty worktrees
+cproj cleanup --newer-than 1    # Remove recent test worktrees
 ```
 
-5. **Cleanup old workspaces**
+### 📊 **Monitoring & Status**
 ```bash
-cproj cleanup --merged-only --older-than 7
-```
-
-## Commands
-
-### Core Commands
-
-- `init` (`new`, `start`) - Initialize project configuration
-- `worktree create` - Create isolated workspace with new branch
-- `review open` - Prepare branch for review (push + create PR)
-- `merge` - Merge branch and cleanup workspace
-- `list` (`ls`) - List active workspaces
-- `status` (`st`) - Show detailed workspace status
-- `cleanup` - Remove stale workspaces
-- `open` - Open workspace in terminal/editor/browser
-- `config` - Manage configuration
-
-### Command Examples
-
-#### Initialize Project
-```bash
-# From existing local repo
-cproj init --repo ~/dev/my-project --base main
-
-# Clone from remote
-cproj init --clone https://github.com/user/repo --name "My Project"
-```
-
-#### Create Workspace
-```bash
-# Basic usage
-cproj worktree create --branch feature/new-feature
-
-# With Linear integration and auto-setup
-cproj worktree create \
-  --branch feature/ABC-123-awesome \
-  --linear https://linear.app/company/issue/ABC-123 \
-  --python-install --node-install --java-build
-```
-
-#### Review Workflow
-```bash
-# Create draft PR
-cproj review open --draft
-
-# Create ready PR with reviewers
-cproj review open --ready --assign user1,user2
-```
-
-#### Merge Options
-```bash
-# Squash merge (default)
-cproj merge --squash --delete-remote
-
-# Merge commit
-cproj merge --merge --keep-worktree
-
-# Force merge even with uncommitted changes
-cproj merge --force
-```
-
-#### List and Status
-```bash
-# Human-readable list
+# List all active worktrees
 cproj list
 
-# JSON output
+# Check current workspace status  
+cproj status
+
+# View Linear integration status
+cproj linear status
+```
+
+## Command Reference
+
+### 🎯 **Core Workflow Commands**
+
+| Command | Purpose | Example |
+|---------|---------|---------|
+| `cproj init` | Initialize project configuration | `cproj init` |
+| `cproj w create` | Create isolated workspace | `cproj w create --branch feature/auth` |
+| `cproj review open` | Create PR for review | `cproj review open --assign team-lead` |
+| `cproj merge` | Merge and cleanup | `cproj merge --squash` |
+
+### 🤖 **AI-Powered Commands** 
+
+| Command | Purpose | Agents Used |
+|---------|---------|-------------|
+| `add-ticket` | Generate comprehensive Linear tickets | product-manager, ux-designer, senior-software-engineer |
+| `review-code` | AI-powered code review | senior-developer, qa-engineer, security-reviewer |
+
+### 📊 **Monitoring & Management**
+
+| Command | Purpose | Example |
+|---------|---------|---------|
+| `cproj list` | List active worktrees | `cproj list` |
+| `cproj status` | Show workspace status | `cproj status` |
+| `cproj cleanup` | Remove stale worktrees | `cproj cleanup --force` |
+| `cproj linear status` | Linear integration status | `cproj linear status` |
+
+### ⚙️ **Configuration & Tools**
+
+| Command | Purpose | Example |
+|---------|---------|---------|
+| `cproj config` | Manage settings | `cproj config --list` |
+| `cproj open` | Open workspace tools | `cproj open --editor` |
+| `cproj linear setup` | Configure Linear | `cproj linear setup` |
+
+### 💡 **Quick Examples**
+
+#### 🚀 **Complete Feature Workflow**
+```bash
+# 1. Generate ticket with AI agents
+add-ticket "Add OAuth integration for Google login"
+
+# 2. Create workspace
+cproj w create --branch feature/google-oauth
+
+# 3. Develop feature (write code, tests)
+# ... development work ...
+
+# 4. AI-powered code review
+review-code
+
+# 5. Open PR
+cproj review open --assign tech-lead
+
+# 6. Merge after approval
+cproj merge
+```
+
+#### 🤖 **AI Commands Deep Dive**
+```bash
+# Generate comprehensive tickets
+add-ticket "User dashboard with analytics"
+add-ticket --complexity DEEP "Redesign payment system"
+
+# Comprehensive code review
+review-code                    # Full review with all agents
+review-code --security-only    # Security-focused review
+review-code --full            # Review entire codebase
+```
+
+#### 🧹 **Cleanup & Maintenance**
+```bash
+# Interactive cleanup (recommended)
+cproj cleanup
+
+# Automated cleanup options  
+cproj cleanup --older-than 14 --force    # Remove old worktrees
+cproj cleanup --newer-than 1 --force     # Clean test branches
+cproj cleanup --merged-only              # Remove merged branches
+```
+
+#### ⚙️ **Configuration & Setup**
+```bash
+# Initial setup
+cproj init
+
+# Linear integration
+cproj linear setup --org "my-company" --team "ENG"
+cproj linear status
+
+# List all settings
 cproj list --json
 
 # Show current workspace status
@@ -154,18 +267,6 @@ cproj status
 
 # Status for specific workspace
 cproj status /tmp/myproject_feature_20241201_143022
-```
-
-#### Cleanup
-```bash
-# Interactive cleanup
-cproj cleanup
-
-# Auto-cleanup old workspaces
-cproj cleanup --older-than 7 --merged-only --yes
-
-# Dry run to see what would be removed
-cproj cleanup --older-than 30 --dry-run
 ```
 
 ### Global Options

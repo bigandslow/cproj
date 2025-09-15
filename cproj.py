@@ -1118,6 +1118,8 @@ class CprojCLI:
         
         linear_setup = linear_sub.add_parser('setup', help='Setup Linear integration')
         linear_setup.add_argument('--api-key', help='Linear API key')
+        linear_setup.add_argument('--from-1password', action='store_true', 
+                                 help='Configure Linear API key from 1Password reference')
         linear_setup.add_argument('--team', help='Default team ID/key')
         linear_setup.add_argument('--project', help='Default project ID')
         linear_setup.add_argument('--org', help='Linear organization URL')
@@ -1196,116 +1198,95 @@ class CprojCLI:
         return None
     
     def cmd_init(self, args):
-        """Initialize project"""
-        # Check if we're in a different git repository than configured
-        current_git_root = self._find_git_root(Path.cwd())
-        configured_repo = self.config.get('repo_path')
-        
-        # If no arguments provided, detect current repo or run interactive config
-        if not any([args.repo, args.name, args.clone]):
-            if current_git_root and (not configured_repo or str(current_git_root) != configured_repo):
-                # We're in a different git repo, update config for this repo
-                repo_path = current_git_root
-                project_name = args.name or repo_path.name
-                base_branch = args.base or self.config.get('base_branch', 'main')
-                
-                self.config.set('repo_path', str(repo_path))
-                self.config.set('project_name', project_name)
-                self.config.set('base_branch', base_branch)
-                
-                print(f"✅ Initialized project '{project_name}' at {repo_path}")
-                print()
-                print("🎉 Ready to go! Try these commands:")
-                print(f"  cproj worktree create --branch feature/awesome-feature")
-                print(f"  cproj list")
-                print(f"  cproj config")
-                return
-            elif not self.config.get('repo_path'):
-                # No config at all, run interactive setup
-                config_data = self._prompt_for_config()
-            else:
-                # Use existing config but show current status
-                final_repo_path = Path(configured_repo)
-                print(f"✅ Using existing project '{self.config.get('project_name')}' at {final_repo_path}")
-                return
-        
-        if 'config_data' in locals():
-            # Save all configuration
-            for key, value in config_data.items():
-                self.config.set(key, value)
-            
-            # Handle repository setup
-            repo_path = Path(config_data['repo_path'])
-            
-            # Clone if URL provided
-            if config_data.get('clone_url'):
-                if not repo_path.parent.exists():
-                    repo_path.parent.mkdir(parents=True, exist_ok=True)
-                
-                print(f"Cloning {config_data['clone_url']} to {repo_path}...")
-                try:
-                    subprocess.run(['git', 'clone', config_data['clone_url'], str(repo_path)], check=True)
-                    print("Repository cloned successfully!")
-                except subprocess.CalledProcessError as e:
-                    raise CprojError(f"Failed to clone repository: {e}")
-            
-        else:
-            # Handle command-line arguments (legacy mode)
-            repo_path = Path(args.repo or self.config.get('repo_path', '.'))
-            
-            if args.clone and not repo_path.exists():
-                subprocess.run(['git', 'clone', args.clone, str(repo_path)], check=True)
-            else:
-                # Find git root if we're in a subdirectory
-                git_root = self._find_git_root(repo_path)
-                if git_root:
-                    repo_path = git_root
-            
-            project_name = args.name or repo_path.name
-            base_branch = args.base or self.config.get('base_branch', 'main')
-            
-            self.config.set('repo_path', str(repo_path.absolute()))
-            self.config.set('project_name', project_name)
-            self.config.set('base_branch', base_branch)
-        
-        # Verify git repository and find root
-        final_repo_path = Path(self.config.get('repo_path'))
-        git_root = self._find_git_root(final_repo_path)
-        if not git_root:
-            raise CprojError(f"Not a git repository: {final_repo_path}")
-        
-        # Update config with the actual git root
-        if git_root != final_repo_path:
-            self.config.set('repo_path', str(git_root))
-            final_repo_path = git_root
-        
-        print(f"✅ Initialized project '{self.config.get('project_name')}' at {final_repo_path}")
-        
-        # Create temp directory if it doesn't exist
-        temp_root = Path(self.config.get('temp_root', str(Path.home() / '.cache' / 'cproj-workspaces')))
-        temp_root.mkdir(parents=True, exist_ok=True)
-        
-        # Show next steps
+        """Initialize system-level cproj configuration"""
+        print("🚀 Welcome to cproj!")
         print()
-        print("🎉 Ready to go! Try these commands:")
-        print(f"  cproj worktree create --branch feature/awesome-feature")
-        print(f"  cproj list")
-        print(f"  cproj config")
+        print("This will configure system-level settings.")
+        print("Projects are now automatically detected from your current working directory.")
+        print()
         
-        # Show tool availability
-        missing_tools = []
-        if not shutil.which('git'):
-            missing_tools.append('git')
-        if not shutil.which('uv') and self.config.get('python_prefer_uv'):
-            print("💡 Note: uv not found, will use venv as fallback")
-        if not shutil.which('gh'):
-            missing_tools.append('gh (for GitHub integration)')
-        if not OnePasswordIntegration.is_available() and self.config.get('use_1password'):
-            missing_tools.append('op (1Password CLI)')
+        # Check if we already have system config
+        if self.config.get('temp_root'):
+            print("✅ cproj is already configured!")
+            print()
+            print("Current system settings:")
+            self._show_system_config()
+            print()
+            proceed = input("Reconfigure system settings? [y/N]: ").strip().lower()
+            if proceed not in ['y', 'yes']:
+                return
         
-        if missing_tools:
-            print(f"⚠️  Missing tools: {', '.join(missing_tools)}")
-            print("   Install them for full functionality")
+        # Run system configuration
+        config_data = self._prompt_for_system_config()
+        
+        # Save system configuration
+        for key, value in config_data.items():
+            self.config.set(key, value)
+        
+        print()
+        print("✅ System configuration saved!")
+        print()
+        print("🎉 Ready to go! Now you can use cproj in any git repository:")
+        print("  cd /path/to/your/project")
+        print("  cproj w create --branch feature/awesome-feature")
+        print("  cproj list")
+        print("  cproj config")
+    
+    def _show_system_config(self):
+        """Show current system configuration"""
+        print(f"  Temp root: {self.config.get('temp_root', 'Not set')}")
+        print(f"  Terminal: {self.config.get('terminal', 'Not set')}")
+        print(f"  Editor: {self.config.get('editor', 'Not set')}")
+        print(f"  Python prefer uv: {self.config.get('python_prefer_uv', False)}")
+        print(f"  Node use nvm: {self.config.get('node_use_nvm', False)}")
+        print(f"  Linear org: {self.config.get('linear_org', 'Not set')}")
+        print(f"  GitHub reviewers: {', '.join(self.config.get('github_reviewers', []))}")
+    
+    def _prompt_for_system_config(self) -> Dict:
+        """Prompt for system-level configuration"""
+        config = {}
+        
+        print("🛠️ System Configuration")
+        print("-" * 50)
+        
+        # Temp directory for worktrees
+        default_temp = str(Path.home() / '.cache' / 'cproj-workspaces')
+        temp_root = input(f"Temp directory for worktrees [{default_temp}]: ").strip()
+        config['temp_root'] = temp_root or default_temp
+        
+        # Terminal preference
+        default_terminal = "Terminal" if sys.platform == "darwin" else "none"
+        terminal = input(f"Terminal app (Terminal, iTerm, none) [{default_terminal}]: ").strip()
+        config['terminal'] = terminal or default_terminal
+        
+        # Editor preference  
+        editor = input("Editor command (code, cursor, vim, etc.) [code]: ").strip()
+        config['editor'] = editor or 'code'
+        
+        # Python preferences
+        python_uv = input("Prefer uv for Python environments? [Y/n]: ").strip().lower()
+        config['python_prefer_uv'] = python_uv != 'n'
+        
+        # Node preferences
+        node_nvm = input("Use nvm for Node.js? [Y/n]: ").strip().lower()
+        config['node_use_nvm'] = node_nvm != 'n'
+        
+        # Optional integrations
+        print()
+        print("📱 Optional Integrations")
+        print("-" * 50)
+        
+        # Linear
+        linear_org = input("Linear organization (optional): ").strip()
+        if linear_org:
+            config['linear_org'] = linear_org
+        
+        # GitHub reviewers
+        github_reviewers = input("GitHub default reviewers (comma-separated, optional): ").strip()
+        if github_reviewers:
+            config['github_reviewers'] = [r.strip() for r in github_reviewers.split(',')]
+        
+        return config
     
     def _is_interactive(self) -> bool:
         """Check if we're running in an interactive terminal"""
@@ -1587,6 +1568,68 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         except (OSError, ValueError) as e:
             raise ValueError(f"Failed to store API key: {e}")
     
+    def _store_linear_1password_ref(self, reference: str):
+        """Store Linear API key 1Password reference in .cproj directory"""
+        try:
+            # Find git repository root
+            git_root = self._find_git_root(Path.cwd())
+            if not git_root:
+                raise ValueError("Not in a git repository")
+            
+            # Ensure .cproj directory exists
+            cproj_dir = git_root / '.cproj'
+            cproj_dir.mkdir(exist_ok=True)
+            
+            # Store reference
+            ref_file = cproj_dir / '.linear-1password-ref'
+            with open(ref_file, 'w') as f:
+                f.write(reference)
+            
+            # Set restrictive permissions
+            ref_file.chmod(0o600)
+            
+            logger.info(f"Stored 1Password reference for Linear API key")
+            
+        except (OSError, ValueError) as e:
+            raise ValueError(f"Failed to store 1Password reference: {e}")
+    
+    def _setup_api_key_from_1password(self):
+        """Interactive setup for API key from 1Password"""
+        # Check if 1Password is available
+        if not OnePasswordIntegration.is_available():
+            print("❌ 1Password CLI not available or not authenticated")
+            print("💡 Install 1Password CLI and run 'op account add' to set up")
+            return False
+            
+        # Prompt for 1Password reference
+        print("\n📝 To get your Linear API key reference from 1Password:")
+        print("   1. Open the Linear API key item in 1Password")
+        print("   2. Right-click on the password/secret field")
+        print("   3. Select 'Copy Secret Reference'")
+        print()
+        reference = input("Enter 1Password reference (e.g., op://Private/linear-api-key/password): ").strip()
+        if reference:
+            # Strip quotes that 1Password includes in "Copy Secret Reference"
+            reference = reference.strip('"\'')
+            
+            # Test the reference
+            api_key = OnePasswordIntegration.get_secret(reference)
+            if api_key:
+                try:
+                    self._store_linear_1password_ref(reference)
+                    print("✅ 1Password reference stored and validated")
+                    return True
+                except ValueError as e:
+                    print(f"❌ Failed to store reference: {e}")
+                    return False
+            else:
+                print("❌ Could not retrieve API key from 1Password reference")
+                print("💡 Check that the reference is correct and you're authenticated")
+                return False
+        else:
+            print("❌ No reference provided")
+            return False
+    
     def _add_to_gitignore(self, repo_path: Path, pattern: str):
         """Add pattern to .gitignore if not already present"""
         gitignore_path = repo_path / '.gitignore'
@@ -1606,25 +1649,41 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             f.write(f"{pattern}\n")
     
     def _load_linear_config(self) -> Dict[str, str]:
-        """Load Linear configuration from .env.linear file"""
+        """Load Linear configuration from .env.linear file or 1Password"""
         git_root = self._find_git_root(Path.cwd())
         if not git_root:
             return {}
         
-        env_file = git_root / '.env.linear'
-        if not env_file.exists():
-            return {}
-        
         config = {}
-        try:
-            with open(env_file, 'r') as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith('#') and '=' in line:
-                        key, value = line.split('=', 1)
-                        config[key.strip()] = value.strip()
-        except OSError:
-            pass
+        
+        # First check for .env.linear file
+        env_file = git_root / '.env.linear'
+        if env_file.exists():
+            try:
+                with open(env_file, 'r') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith('#') and '=' in line:
+                            key, value = line.split('=', 1)
+                            config[key.strip()] = value.strip()
+            except OSError:
+                pass
+        
+        # Check for 1Password reference if API key not found
+        if 'LINEAR_API_KEY' not in config:
+            cproj_dir = git_root / '.cproj'
+            onepass_ref_file = cproj_dir / '.linear-1password-ref'
+            if onepass_ref_file.exists():
+                try:
+                    with open(onepass_ref_file, 'r') as f:
+                        reference = f.read().strip()
+                        if reference and OnePasswordIntegration.is_available():
+                            api_key = OnePasswordIntegration.get_secret(reference)
+                            if api_key:
+                                config['LINEAR_API_KEY'] = api_key
+                                config['LINEAR_API_KEY_SOURCE'] = '1Password'
+                except (OSError, ValueError):
+                    pass
         
         return config
     
@@ -1670,12 +1729,59 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         
         return suggestions[:3]  # Limit to 3 suggestions
     
+    def _detect_default_branch(self, repo_path: Path) -> Optional[str]:
+        """Detect the default branch for a repository"""
+        try:
+            # Try to get the default branch from origin
+            result = subprocess.run(
+                ['git', 'symbolic-ref', 'refs/remotes/origin/HEAD'],
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            # Extract branch name from refs/remotes/origin/branch_name
+            return result.stdout.strip().split('/')[-1]
+        except subprocess.CalledProcessError:
+            # Fall back to common default branches
+            for branch in ['main', 'master', 'develop']:
+                try:
+                    subprocess.run(
+                        ['git', 'show-ref', '--verify', f'refs/heads/{branch}'],
+                        cwd=repo_path,
+                        capture_output=True,
+                        check=True
+                    )
+                    return branch
+                except subprocess.CalledProcessError:
+                    continue
+        return None
+    
     def cmd_worktree_create(self, args):
         """Create worktree"""
-        repo_path = Path(args.repo or self.config.get('repo_path', '.'))
-        base_branch = args.base or self.config.get('base_branch', 'main')
+        # Derive project context from current working directory
+        if args.repo:
+            repo_path = Path(args.repo)
+        else:
+            # Find git repository root from current working directory
+            repo_path = self._find_git_root(Path.cwd())
+            if not repo_path:
+                print("❌ Not in a git repository!")
+                print()
+                print("You need to be in a git repository or specify --repo:")
+                print("  cd /path/to/your/project")
+                print("  cproj w create --branch feature/name")
+                print()
+                print("Or:")
+                print("  cproj w create --repo /path/to/project --branch feature/name")
+                return
+        
+        # Derive project settings from repository
+        project_name = repo_path.name
+        base_branch = args.base or self._detect_default_branch(repo_path) or 'main'
         temp_root = Path(args.temp_root or self.config.get('temp_root', tempfile.gettempdir()) or tempfile.gettempdir())
-        project_name = self.config.get('project_name', repo_path.name)
+        
+        logger.debug(f"Using repository: {repo_path} (project: {project_name})")
         
         # Interactive prompt for branch name if not provided and in interactive mode
         if not args.branch:
@@ -1883,7 +1989,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                 print(f"⚠️  Could not setup review agents: {e}")
         
         print(f"\n🎉 Branch {branch} ready for review")
-    
+
     # Legacy cmd_review_agents method removed for security and maintainability
     # The old implementation had potential security vulnerabilities in:
     # - Template string formatting without proper sanitization
@@ -2131,7 +2237,18 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                                     error_msg = str(e)
                                     if "is dirty" in error_msg and not args.force:
                                         print(f"❌ Failed to remove {Path(wt['path']).name}: Worktree is dirty (has uncommitted changes)")
-                                        print(f"💡 Use --force to remove dirty worktrees")
+                                        if self._is_interactive():
+                                            force_choice = input(f"Force removal of dirty worktree {Path(wt['path']).name}? [y/N]: ").strip().lower()
+                                            if force_choice in ['y', 'yes']:
+                                                try:
+                                                    git.remove_worktree(Path(wt['path']), force=True)
+                                                    print(f"✅ Force removed {Path(wt['path']).name}")
+                                                except Exception as force_e:
+                                                    print(f"❌ Failed to force remove {Path(wt['path']).name}: {force_e}")
+                                            else:
+                                                print(f"⏭️  Skipped {Path(wt['path']).name}")
+                                        else:
+                                            print(f"💡 Use --force to remove dirty worktrees")
                                     else:
                                         print(f"❌ Failed to remove {Path(wt['path']).name}: {e}")
                         else:
@@ -2257,7 +2374,18 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                         error_msg = str(e)
                         if "is dirty" in error_msg and not args.force:
                             print(f"❌ Failed to remove {path.name}: Worktree is dirty (has uncommitted changes)")
-                            print(f"💡 Use --force to remove dirty worktrees")
+                            if self._is_interactive():
+                                force_choice = input(f"Force removal of dirty worktree {path.name}? [y/N]: ").strip().lower()
+                                if force_choice in ['y', 'yes']:
+                                    try:
+                                        git.remove_worktree(path, force=True)
+                                        print(f"✅ Force removed {path.name}")
+                                    except Exception as force_e:
+                                        print(f"❌ Failed to force remove {path.name}: {force_e}")
+                                else:
+                                    print(f"⏭️  Skipped {path.name}")
+                            else:
+                                print(f"💡 Use --force to remove dirty worktrees")
                         else:
                             print(f"❌ Failed to remove {path.name}: {e}")
     
@@ -2364,28 +2492,131 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         print("🔗 Linear Integration Setup")
         print("-" * 40)
         
-        # Update organization URL
-        if args.org:
-            self.config.set('linear_org', args.org)
-            print(f"✅ Set organization: {args.org}")
+        # Check if any arguments were provided
+        has_args = any([args.org, args.team, args.project, args.api_key, args.from_1password])
         
-        # Update default team
-        if args.team:
-            self.config.set('linear_default_team', args.team)
-            print(f"✅ Set default team: {args.team}")
+        # If no arguments, run interactive setup
+        if not has_args:
+            print("\n📝 Interactive Linear Setup")
+            print("Configure your Linear integration step by step:")
+            print()
+            
+            # Prompt for organization
+            current_org = self.config.get('linear_org', '')
+            org_prompt = f"Linear organization [{current_org}]: " if current_org else "Linear organization: "
+            org = input(org_prompt).strip()
+            if org:
+                self.config.set('linear_org', org)
+                print(f"✅ Set organization: {org}")
+            elif current_org:
+                print(f"✅ Using existing organization: {current_org}")
+            
+            # Prompt for team
+            current_team = self.config.get('linear_default_team', '')
+            team_prompt = f"Default team [{current_team}]: " if current_team else "Default team (optional): "
+            team = input(team_prompt).strip()
+            if team:
+                self.config.set('linear_default_team', team)
+                print(f"✅ Set default team: {team}")
+            elif current_team:
+                print(f"✅ Using existing team: {current_team}")
+            
+            # Prompt for project
+            current_project = self.config.get('linear_default_project', '')
+            project_prompt = f"Default project [{current_project}]: " if current_project else "Default project (optional): "
+            project = input(project_prompt).strip()
+            if project:
+                self.config.set('linear_default_project', project)
+                print(f"✅ Set default project: {project}")
+            elif current_project:
+                print(f"✅ Using existing project: {current_project}")
+            
+            # Check if API key is already configured
+            linear_config = self._load_linear_config()
+            if linear_config.get('LINEAR_API_KEY'):
+                source = linear_config.get('LINEAR_API_KEY_SOURCE', 'File')
+                print(f"✅ API key already configured (source: {source})")
+            else:
+                # Prompt for API key configuration
+                print("\n🔑 API Key Configuration")
+                print("Choose how to configure your Linear API key:")
+                print("  1. From 1Password (recommended)")
+                print("  2. Enter directly")
+                print("  3. Skip for now")
+                
+                choice = input("Choose option [1]: ").strip() or "1"
+                
+                if choice == "1":
+                    self._setup_api_key_from_1password()
+                elif choice == "2":
+                    api_key = input("Enter your Linear API key: ").strip()
+                    if api_key:
+                        try:
+                            self._store_linear_api_key(api_key)
+                            print("✅ API key stored securely")
+                        except ValueError as e:
+                            print(f"❌ Failed to store API key: {e}")
+                elif choice == "3":
+                    print("⏭️  Skipping API key configuration")
+                    print("💡 You can set it later with: cproj linear setup --from-1password")
+        else:
+            # Handle command-line arguments
+            # Update organization URL
+            if args.org:
+                self.config.set('linear_org', args.org)
+                print(f"✅ Set organization: {args.org}")
+            
+            # Update default team
+            if args.team:
+                self.config.set('linear_default_team', args.team)
+                print(f"✅ Set default team: {args.team}")
+            
+            # Update default project
+            if args.project:
+                self.config.set('linear_default_project', args.project)
+                print(f"✅ Set default project: {args.project}")
         
-        # Update default project
-        if args.project:
-            self.config.set('linear_default_project', args.project)
-            print(f"✅ Set default project: {args.project}")
-        
-        # Update API key
+        # Update API key (command-line args)
         if args.api_key:
             try:
                 self._store_linear_api_key(args.api_key)
                 print("✅ API key stored securely")
             except ValueError as e:
                 print(f"❌ Failed to store API key: {e}")
+                return
+        elif args.from_1password:
+            # Check if 1Password is available
+            if not OnePasswordIntegration.is_available():
+                print("❌ 1Password CLI not available or not authenticated")
+                print("💡 Install 1Password CLI and run 'op account add' to set up")
+                return
+                
+            # Prompt for 1Password reference
+            print("\n📝 To get your Linear API key reference from 1Password:")
+            print("   1. Open the Linear API key item in 1Password")
+            print("   2. Right-click on the password/secret field")
+            print("   3. Select 'Copy Secret Reference'")
+            print()
+            reference = input("Enter 1Password reference (e.g., op://Private/linear-api-key/password): ").strip()
+            if reference:
+                # Strip quotes that 1Password includes in "Copy Secret Reference"
+                reference = reference.strip('"\'')
+                
+                # Test the reference
+                api_key = OnePasswordIntegration.get_secret(reference)
+                if api_key:
+                    try:
+                        self._store_linear_1password_ref(reference)
+                        print("✅ 1Password reference stored and validated")
+                    except ValueError as e:
+                        print(f"❌ Failed to store reference: {e}")
+                        return
+                else:
+                    print("❌ Could not retrieve API key from 1Password reference")
+                    print("💡 Check that the reference is correct and you're authenticated")
+                    return
+            else:
+                print("❌ No reference provided")
                 return
         
         print("\n💡 Configuration updated! Test with: cproj linear test")
@@ -2432,6 +2663,8 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         print(f"  API Key: {'✅ Configured' if linear_config.get('LINEAR_API_KEY') else '❌ Not configured'}")
         if linear_config.get('LINEAR_API_KEY'):
             key = linear_config['LINEAR_API_KEY']
+            source = linear_config.get('LINEAR_API_KEY_SOURCE', 'File')
+            print(f"  Key Source: {source}")
             print(f"  Key Preview: {key[:8]}...{key[-4:] if len(key) > 12 else ''}")
         
         # Show file status
