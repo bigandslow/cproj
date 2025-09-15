@@ -71,9 +71,19 @@ class OnePasswordIntegration:
         """Sanitize arguments for 1Password CLI to prevent injection"""
         if not isinstance(arg, str):
             arg = str(arg)
-        # Remove shell metacharacters and path traversal patterns
-        # Only allow alphanumeric, hyphens, underscores, dots, and spaces
-        return ''.join(c for c in arg if c.isalnum() or c in '-_. ').replace('..', '')
+
+        # Handle path traversal patterns specifically
+        result = arg
+        # Remove path traversal sequences
+        result = result.replace('../', '').replace('..\\', '')
+        # Remove any remaining double-dots that are part of path traversal
+        # but preserve legitimate ellipsis (...) by checking context
+        if '../' in arg or '..\\' in arg:
+            result = result.replace('..', '')
+
+        # Remove shell metacharacters and only allow safe characters
+        result = ''.join(c for c in result if c.isalnum() or c in '-_. ')
+        return result
 
     @staticmethod
     def store_secret(title: str, value: str, vault: str = None) -> Optional[str]:
@@ -1324,18 +1334,39 @@ class CprojCLI:
         
         print("🛠️ System Configuration")
         print("-" * 50)
-        
+
+        # Use defaults in non-interactive mode
+        if not self._is_interactive():
+            default_temp = str(Path.home() / '.cache' / 'cproj-workspaces')
+            default_terminal = "Terminal" if sys.platform == "darwin" else "none"
+            config['temp_root'] = default_temp
+            config['terminal'] = default_terminal
+            config['editor'] = "code"
+            config['python_prefer_uv'] = True
+            config['node_use_nvm'] = True
+            config['linear_org'] = ""
+            config['linear_default_team'] = ""
+            config['linear_default_project'] = ""
+            config['github_user'] = ""
+            print(f"Non-interactive mode: Using defaults")
+            print(f"  Temp directory: {default_temp}")
+            print(f"  Terminal: {default_terminal}")
+            print(f"  Editor: code")
+            print(f"  Python: Prefer uv")
+            print(f"  Node: Use nvm")
+            return config
+
         # Temp directory for worktrees
         default_temp = str(Path.home() / '.cache' / 'cproj-workspaces')
         temp_root = input(f"Temp directory for worktrees [{default_temp}]: ").strip()
         config['temp_root'] = temp_root or default_temp
-        
+
         # Terminal preference
         default_terminal = "Terminal" if sys.platform == "darwin" else "none"
         terminal = input(f"Terminal app (Terminal, iTerm, none) [{default_terminal}]: ").strip()
         config['terminal'] = terminal or default_terminal
-        
-        # Editor preference  
+
+        # Editor preference
         editor = input("Editor command (code, cursor, vim, etc.) [code]: ").strip()
         config['editor'] = editor or 'code'
         
@@ -2768,6 +2799,15 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         print(f"  Commands available: {'✅ Yes' if (claude_dir / 'commands').exists() else '❌ No'}")
         print(f"  Agents available: {'✅ Yes' if (claude_dir / 'agents').exists() else '❌ No'}")
         print(f"  MCP config: {'✅ Yes' if (claude_dir / 'mcp_config.json').exists() else '❌ No'}")
+
+    # Alias methods for integration tests compatibility
+    def cmd_setup(self, args):
+        """Alias for cmd_init"""
+        return self.cmd_init(args)
+
+    def cmd_create(self, args):
+        """Alias for cmd_worktree_create"""
+        return self.cmd_worktree_create(args)
 
 
 def main():
