@@ -22,9 +22,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 # Setup logging
-logger = logging.getLogger('cproj')
+logger = logging.getLogger("cproj")
 handler = logging.StreamHandler()
-formatter = logging.Formatter('%(levelname)s: %(message)s')
+formatter = logging.Formatter("%(levelname)s: %(message)s")
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 logger.setLevel(logging.INFO)
@@ -32,6 +32,7 @@ logger.setLevel(logging.INFO)
 
 class CprojError(Exception):
     """Base exception for cproj errors"""
+
     pass
 
 
@@ -41,13 +42,12 @@ class OnePasswordIntegration:
     @staticmethod
     def is_available() -> bool:
         """Check if 1Password CLI is available and authenticated"""
-        if not shutil.which('op'):
+        if not shutil.which("op"):
             return False
 
         try:
             # Check if authenticated
-            subprocess.run(['op', 'account', 'list'], check=True,
-                         capture_output=True, timeout=5)
+            subprocess.run(["op", "account", "list"], check=True, capture_output=True, timeout=5)
             return True
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             return False
@@ -60,8 +60,7 @@ class OnePasswordIntegration:
 
         try:
             result = subprocess.run(
-                ['op', 'read', reference],
-                capture_output=True, text=True, check=True, timeout=10
+                ["op", "read", reference], capture_output=True, text=True, check=True, timeout=10
             )
             return result.stdout.strip()
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
@@ -74,28 +73,42 @@ class OnePasswordIntegration:
             arg = str(arg)
 
         # Special handling for 1Password references (op://...)
-        if arg.startswith('op://'):
+        if arg.startswith("op://"):
             # For valid 1Password references, we can be more permissive
             # Remove only dangerous shell metacharacters while preserving the reference format
             dangerous_chars = [
-                ';', '&', '|', '`', '$', "'", '"', '\\', '\n', '\r', '\t', '<', '>', '(', ')'
+                ";",
+                "&",
+                "|",
+                "`",
+                "$",
+                "'",
+                '"',
+                "\\",
+                "\n",
+                "\r",
+                "\t",
+                "<",
+                ">",
+                "(",
+                ")",
             ]
             result = arg
             for char in dangerous_chars:
-                result = result.replace(char, '')
+                result = result.replace(char, "")
             return result
 
         # Handle path traversal patterns specifically for non-op:// arguments
         result = arg
         # Remove path traversal sequences
-        result = result.replace('../', '').replace('..\\', '')
+        result = result.replace("../", "").replace("..\\", "")
         # Remove any remaining double-dots that are part of path traversal
         # but preserve legitimate ellipsis (...) by checking context
-        if '../' in arg or '..\\' in arg:
-            result = result.replace('..', '')
+        if "../" in arg or "..\\" in arg:
+            result = result.replace("..", "")
 
         # Remove shell metacharacters and only allow safe characters for general arguments
-        result = ''.join(c for c in result if c.isalnum() or c in '-_. ')
+        result = "".join(c for c in result if c.isalnum() or c in "-_. ")
         return result
 
     @staticmethod
@@ -112,10 +125,10 @@ class OnePasswordIntegration:
         safe_vault = OnePasswordIntegration._sanitize_op_argument(vault) if vault else None
 
         try:
-            cmd = ['op', 'item', 'create', '--category=password', f'--title={safe_title}']
+            cmd = ["op", "item", "create", "--category=password", f"--title={safe_title}"]
             if safe_vault:
-                cmd.append(f'--vault={safe_vault}')
-            cmd.append(f'password={value}')  # Password value is passed as argument
+                cmd.append(f"--vault={safe_vault}")
+            cmd.append(f"password={value}")  # Password value is passed as argument
 
             subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=10)
             # Extract reference from output (simplified)
@@ -131,7 +144,7 @@ class OnePasswordIntegration:
 
         secret_value = getpass.getpass(f"{prompt_text}: ")
 
-        if OnePasswordIntegration.is_available() and store_choice == 'y':
+        if OnePasswordIntegration.is_available() and store_choice == "y":
             vault = input("1Password vault name (or press Enter for Private): ").strip() or None
             reference = OnePasswordIntegration.store_secret(
                 f"cproj-{secret_name}", secret_value, vault
@@ -147,7 +160,7 @@ class Config:
     """Configuration management"""
 
     def __init__(self, config_path: Optional[Path] = None):
-        self.config_path = config_path or Path.home() / '.config' / 'cproj' / 'config.json'
+        self.config_path = config_path or Path.home() / ".config" / "cproj" / "config.json"
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
         self._config = self._load_config()
 
@@ -158,7 +171,7 @@ class Config:
         return {}
 
     def save(self):
-        with self.config_path.open('w') as f:
+        with self.config_path.open("w") as f:
             json.dump(self._config, f, indent=2)
 
     def get(self, key: str, default=None):
@@ -179,17 +192,17 @@ class GitWorktree:
 
     def fetch_all(self):
         """Fetch all remotes"""
-        self._run_git(['fetch', '--all', '--prune'])
+        self._run_git(["fetch", "--all", "--prune"])
 
     def ensure_base_branch(self, base_branch: str):
         """Ensure base branch exists and is up to date"""
         try:
             # Check if branch exists locally
-            self._run_git(['show-ref', '--verify', '--quiet', f'refs/heads/{base_branch}'])
+            self._run_git(["show-ref", "--verify", "--quiet", f"refs/heads/{base_branch}"])
         except subprocess.CalledProcessError:
             # Create from origin if it doesn't exist
             try:
-                self._run_git(['branch', base_branch, f'origin/{base_branch}'])
+                self._run_git(["branch", base_branch, f"origin/{base_branch}"])
             except subprocess.CalledProcessError as e:
                 msg = f"Base branch '{base_branch}' not found locally or on origin"
                 raise CprojError(msg) from e
@@ -197,20 +210,20 @@ class GitWorktree:
         # Fast-forward the base branch
         current_branch = self._get_current_branch()
         if current_branch != base_branch:
-            self._run_git(['checkout', base_branch])
+            self._run_git(["checkout", base_branch])
 
         try:
-            self._run_git(['merge', '--ff-only', f'origin/{base_branch}'])
+            self._run_git(["merge", "--ff-only", f"origin/{base_branch}"])
         except subprocess.CalledProcessError:
             print(f"Warning: Could not fast-forward {base_branch}")
 
         if current_branch and current_branch != base_branch:
-            self._run_git(['checkout', current_branch])
+            self._run_git(["checkout", current_branch])
 
     def branch_exists(self, branch: str) -> bool:
         """Check if a branch exists"""
         try:
-            self._run_git(['show-ref', '--verify', '--quiet', f'refs/heads/{branch}'])
+            self._run_git(["show-ref", "--verify", "--quiet", f"refs/heads/{branch}"])
             return True
         except subprocess.CalledProcessError:
             return False
@@ -220,13 +233,13 @@ class GitWorktree:
         try:
             # List all worktrees and check if any have this branch checked out
             result = self._run_git(
-                ['worktree', 'list', '--porcelain'], capture_output=True, text=True
+                ["worktree", "list", "--porcelain"], capture_output=True, text=True
             )
             current_branch = None
-            for line in result.stdout.strip().split('\n'):
-                if line.startswith('branch '):
+            for line in result.stdout.strip().split("\n"):
+                if line.startswith("branch "):
                     current_branch = (
-                        line.split('refs/heads/', 1)[1] if 'refs/heads/' in line else None
+                        line.split("refs/heads/", 1)[1] if "refs/heads/" in line else None
                     )
                     if current_branch == branch:
                         return True
@@ -254,7 +267,7 @@ class GitWorktree:
 
                     while True:
                         choice = input("Choose option [1-4]: ").strip()
-                        if choice == '1':
+                        if choice == "1":
                             new_branch = input("Enter new branch name: ").strip()
                             if new_branch:
                                 branch = new_branch
@@ -262,21 +275,21 @@ class GitWorktree:
                             else:
                                 print("❌ Branch name cannot be empty")
                                 continue
-                        elif choice == '2':
+                        elif choice == "2":
                             raise CprojError(
                                 f"Branch '{branch}' is checked out elsewhere. "
                                 f"Use 'git worktree list' to find it."
                             )
-                        elif choice == '3':
+                        elif choice == "3":
                             # Force create new worktree, detaching the branch from current location
                             try:
                                 self._run_git(
-                                    ['worktree', 'add', '--force', str(worktree_path), branch]
+                                    ["worktree", "add", "--force", str(worktree_path), branch]
                                 )
                                 return worktree_path
                             except subprocess.CalledProcessError as e:
                                 raise CprojError(f"Failed to force create worktree: {e}") from e
-                        elif choice == '4':
+                        elif choice == "4":
                             raise CprojError("Worktree creation cancelled by user")
                         else:
                             print("❌ Please enter 1, 2, 3, or 4")
@@ -289,13 +302,13 @@ class GitWorktree:
 
             # Branch exists but not checked out, use it
             try:
-                self._run_git(['worktree', 'add', str(worktree_path), branch])
+                self._run_git(["worktree", "add", str(worktree_path), branch])
             except subprocess.CalledProcessError as e:
                 raise CprojError(f"Failed to create worktree with existing branch '{branch}': {e}")
         else:
             # Branch doesn't exist, create it
             try:
-                self._run_git(['worktree', 'add', '-b', branch, str(worktree_path), base_branch])
+                self._run_git(["worktree", "add", "-b", branch, str(worktree_path), base_branch])
             except subprocess.CalledProcessError as e:
                 raise CprojError(f"Failed to create new branch '{branch}': {e}")
 
@@ -303,37 +316,37 @@ class GitWorktree:
 
     def remove_worktree(self, worktree_path: Path, force: bool = False):
         """Remove a worktree"""
-        cmd = ['worktree', 'remove']
+        cmd = ["worktree", "remove"]
         if force:
-            cmd.append('--force')
+            cmd.append("--force")
         cmd.append(str(worktree_path))
         try:
             self._run_git(cmd, capture_output=True, text=True)
         except subprocess.CalledProcessError as e:
             error_msg = str(e.stderr) if e.stderr else str(e)
-            if 'is dirty' in error_msg or 'contains modified' in error_msg:
+            if "is dirty" in error_msg or "contains modified" in error_msg:
                 raise CprojError("Worktree is dirty. Use force=True to remove anyway")
             raise CprojError(f"Failed to remove worktree: {error_msg}")
 
     def list_worktrees(self) -> List[Dict]:
         """List all worktrees"""
-        result = self._run_git(['worktree', 'list', '--porcelain'], capture_output=True, text=True)
+        result = self._run_git(["worktree", "list", "--porcelain"], capture_output=True, text=True)
         worktrees = []
         current_tree = {}
 
-        for line in result.stdout.strip().split('\n'):
-            if line.startswith('worktree '):
+        for line in result.stdout.strip().split("\n"):
+            if line.startswith("worktree "):
                 if current_tree:
                     worktrees.append(current_tree)
-                current_tree = {'path': line.split(' ', 1)[1]}
-            elif line.startswith('HEAD '):
-                current_tree['commit'] = line.split(' ', 1)[1]
-            elif line.startswith('branch '):
-                current_tree['branch'] = line.split('refs/heads/', 1)[1]
-            elif line == 'bare':
-                current_tree['bare'] = True
-            elif line == 'detached':
-                current_tree['detached'] = True
+                current_tree = {"path": line.split(" ", 1)[1]}
+            elif line.startswith("HEAD "):
+                current_tree["commit"] = line.split(" ", 1)[1]
+            elif line.startswith("branch "):
+                current_tree["branch"] = line.split("refs/heads/", 1)[1]
+            elif line == "bare":
+                current_tree["bare"] = True
+            elif line == "detached":
+                current_tree["detached"] = True
 
         if current_tree:
             worktrees.append(current_tree)
@@ -344,32 +357,34 @@ class GitWorktree:
         """Get status for a specific worktree"""
         try:
             # Get ahead/behind info
-            result = self._run_git(['rev-list', '--left-right', '--count', 'HEAD...@{u}'],
-                                 cwd=worktree_path, capture_output=True, text=True)
+            result = self._run_git(
+                ["rev-list", "--left-right", "--count", "HEAD...@{u}"],
+                cwd=worktree_path,
+                capture_output=True,
+                text=True,
+            )
             ahead, behind = map(int, result.stdout.strip().split())
 
             # Check if dirty
-            result = self._run_git(['status', '--porcelain'],
-                                 cwd=worktree_path, capture_output=True, text=True)
+            result = self._run_git(
+                ["status", "--porcelain"], cwd=worktree_path, capture_output=True, text=True
+            )
             dirty = bool(result.stdout.strip())
 
-            return {
-                'ahead': ahead,
-                'behind': behind,
-                'dirty': dirty
-            }
+            return {"ahead": ahead, "behind": behind, "dirty": dirty}
         except subprocess.CalledProcessError:
-            return {'ahead': 0, 'behind': 0, 'dirty': False}
+            return {"ahead": 0, "behind": 0, "dirty": False}
 
     def push_branch(self, branch: str, worktree_path: Path):
         """Push branch to origin"""
-        self._run_git(['push', '-u', 'origin', branch], cwd=worktree_path)
+        self._run_git(["push", "-u", "origin", branch], cwd=worktree_path)
 
     def is_branch_dirty(self, worktree_path: Path) -> bool:
         """Check if worktree has uncommitted changes"""
         try:
-            result = self._run_git(['status', '--porcelain'],
-                                 cwd=worktree_path, capture_output=True, text=True)
+            result = self._run_git(
+                ["status", "--porcelain"], cwd=worktree_path, capture_output=True, text=True
+            )
             return bool(result.stdout.strip())
         except subprocess.CalledProcessError:
             return False
@@ -377,7 +392,7 @@ class GitWorktree:
     def _get_current_branch(self) -> Optional[str]:
         """Get current branch name"""
         try:
-            result = self._run_git(['branch', '--show-current'], capture_output=True, text=True)
+            result = self._run_git(["branch", "--show-current"], capture_output=True, text=True)
             return result.stdout.strip() or None
         except subprocess.CalledProcessError:
             return None
@@ -388,12 +403,12 @@ class GitWorktree:
 
         # Check if current directory is a git repository
         while current != current.parent:
-            if (current / '.git').exists():
+            if (current / ".git").exists():
                 return current
             current = current.parent
 
         # Check root directory
-        if (current / '.git').exists():
+        if (current / ".git").exists():
             return current
 
         return None
@@ -402,7 +417,7 @@ class GitWorktree:
         self, args: List[str], cwd: Optional[Path] = None, **kwargs
     ) -> subprocess.CompletedProcess:
         """Run git command"""
-        cmd = ['git', '-C', str(cwd or self.repo_path), *args]
+        cmd = ["git", "-C", str(cwd or self.repo_path), *args]
         return subprocess.run(cmd, check=True, **kwargs)
 
 
@@ -413,50 +428,36 @@ class AgentJson:
 
     def __init__(self, worktree_path: Path):
         # Create .cproj directory if it doesn't exist
-        cproj_dir = worktree_path / '.cproj'
+        cproj_dir = worktree_path / ".cproj"
         cproj_dir.mkdir(exist_ok=True)
 
-        self.path = cproj_dir / '.agent.json'
+        self.path = cproj_dir / ".agent.json"
         self.data = self._load() if self.path.exists() else self._default_data()
 
     def _default_data(self) -> Dict:
         return {
             "schema_version": self.SCHEMA_VERSION,
-            "agent": {
-                "name": os.environ.get('USER', 'unknown'),
-                "email": ""
-            },
-            "project": {
-                "name": "",
-                "repo_path": ""
-            },
+            "agent": {"name": os.environ.get("USER", "unknown"), "email": ""},
+            "project": {"name": "", "repo_path": ""},
             "workspace": {
                 "path": "",
                 "branch": "",
                 "base": "",
                 "created_at": "",
-                "created_by": f"cproj-{self._get_version()}"
+                "created_by": f"cproj-{self._get_version()}",
             },
-            "links": {
-                "linear": "",
-                "pr": ""
-            },
+            "links": {"linear": "", "pr": ""},
             "env": {
                 "python": {
                     "manager": "none",
                     "active": False,
                     "pyproject": False,
-                    "requirements": False
+                    "requirements": False,
                 },
-                "node": {
-                    "manager": "none",
-                    "node_version": ""
-                },
-                "java": {
-                    "build": "none"
-                }
+                "node": {"manager": "none", "node_version": ""},
+                "java": {"build": "none"},
             },
-            "notes": ""
+            "notes": "",
         }
 
     def _load(self) -> Dict:
@@ -470,26 +471,26 @@ class AgentJson:
 
     def save(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self.path.open('w') as f:
+        with self.path.open("w") as f:
             json.dump(self.data, f, indent=2)
 
     def set_project(self, name: str, repo_path: str):
-        self.data['project']['name'] = name
-        self.data['project']['repo_path'] = repo_path
+        self.data["project"]["name"] = name
+        self.data["project"]["repo_path"] = repo_path
 
     def set_workspace(self, path: str, branch: str, base: str):
-        self.data['workspace']['path'] = path
-        self.data['workspace']['branch'] = branch
-        self.data['workspace']['base'] = base
-        self.data['workspace']['created_at'] = datetime.now(timezone.utc).isoformat()
+        self.data["workspace"]["path"] = path
+        self.data["workspace"]["branch"] = branch
+        self.data["workspace"]["base"] = base
+        self.data["workspace"]["created_at"] = datetime.now(timezone.utc).isoformat()
 
     def set_link(self, link_type: str, url: str):
-        if link_type in self.data['links']:
-            self.data['links'][link_type] = url
+        if link_type in self.data["links"]:
+            self.data["links"][link_type] = url
 
     def set_env(self, env_type: str, env_data: Dict):
-        if env_type in self.data['env']:
-            self.data['env'][env_type].update(env_data)
+        if env_type in self.data["env"]:
+            self.data["env"][env_type].update(env_data)
 
     def set(self, key: str, value: Any):
         """Set a value in the data"""
@@ -500,7 +501,7 @@ class AgentJson:
         return self.data.get(key, default)
 
     def close_workspace(self):
-        self.data['workspace']['closed_at'] = datetime.now(timezone.utc).isoformat()
+        self.data["workspace"]["closed_at"] = datetime.now(timezone.utc).isoformat()
 
     @staticmethod
     def _get_version() -> str:
@@ -516,43 +517,42 @@ class EnvironmentSetup:
     # Detection methods
     def _has_pyproject_toml(self) -> bool:
         """Check if pyproject.toml exists"""
-        return (self.worktree_path / 'pyproject.toml').exists()
+        return (self.worktree_path / "pyproject.toml").exists()
 
     def _has_requirements_txt(self) -> bool:
         """Check if requirements.txt exists"""
-        return (self.worktree_path / 'requirements.txt').exists()
+        return (self.worktree_path / "requirements.txt").exists()
 
     def _has_setup_py(self) -> bool:
         """Check if setup.py exists"""
-        return (self.worktree_path / 'setup.py').exists()
+        return (self.worktree_path / "setup.py").exists()
 
     def _has_package_json(self) -> bool:
         """Check if package.json exists"""
-        return (self.worktree_path / 'package.json').exists()
+        return (self.worktree_path / "package.json").exists()
 
     def _has_yarn_lock(self) -> bool:
         """Check if yarn.lock exists"""
-        return (self.worktree_path / 'yarn.lock').exists()
+        return (self.worktree_path / "yarn.lock").exists()
 
     def _has_package_lock(self) -> bool:
         """Check if package-lock.json exists"""
-        return (self.worktree_path / 'package-lock.json').exists()
+        return (self.worktree_path / "package-lock.json").exists()
 
     def _has_maven(self) -> bool:
         """Check if Maven pom.xml exists"""
-        return (self.worktree_path / 'pom.xml').exists()
+        return (self.worktree_path / "pom.xml").exists()
 
     def _has_gradle(self) -> bool:
         """Check if Gradle build files exist"""
-        return (
-            (self.worktree_path / 'build.gradle').exists() or
-            (self.worktree_path / 'build.gradle.kts').exists()
-        )
+        return (self.worktree_path / "build.gradle").exists() or (
+            self.worktree_path / "build.gradle.kts"
+        ).exists()
 
     def _has_uv(self) -> bool:
         """Check if uv is available"""
         try:
-            subprocess.run(['uv', '--version'], capture_output=True, check=True)
+            subprocess.run(["uv", "--version"], capture_output=True, check=True)
             return True
         except (subprocess.CalledProcessError, FileNotFoundError):
             return False
@@ -560,42 +560,40 @@ class EnvironmentSetup:
     def detect_environments(self) -> Dict[str, Any]:
         """Detect available environments"""
         python_files = (
-            self._has_pyproject_toml() or
-            self._has_requirements_txt() or
-            self._has_setup_py()
+            self._has_pyproject_toml() or self._has_requirements_txt() or self._has_setup_py()
         )
         node_files = self._has_package_json()
-        java_files = (self._has_maven() or self._has_gradle())
+        java_files = self._has_maven() or self._has_gradle()
 
         return {
-            'python': {
-                'active': python_files,
-                'pyproject': self._has_pyproject_toml(),
-                'requirements': self._has_requirements_txt(),
-                'setup_py': self._has_setup_py(),
-                'uv_available': self._has_uv()
+            "python": {
+                "active": python_files,
+                "pyproject": self._has_pyproject_toml(),
+                "requirements": self._has_requirements_txt(),
+                "setup_py": self._has_setup_py(),
+                "uv_available": self._has_uv(),
             },
-            'node': {
-                'active': node_files,
-                'package_json': self._has_package_json(),
-                'yarn_lock': self._has_yarn_lock(),
-                'package_lock': self._has_package_lock()
+            "node": {
+                "active": node_files,
+                "package_json": self._has_package_json(),
+                "yarn_lock": self._has_yarn_lock(),
+                "package_lock": self._has_package_lock(),
             },
-            'java': {
-                'active': java_files,
-                'maven': self._has_maven(),
-                'gradle': self._has_gradle()
-            }
+            "java": {
+                "active": java_files,
+                "maven": self._has_maven(),
+                "gradle": self._has_gradle(),
+            },
         }
 
     def _find_python_files(self):
         """Find Python project files in the worktree"""
         # Check for project files in root and common subdirectories
-        pyproject_paths = list(self.worktree_path.glob('**/pyproject.toml'))
-        requirements_paths = list(self.worktree_path.glob('**/requirements.txt'))
+        pyproject_paths = list(self.worktree_path.glob("**/pyproject.toml"))
+        requirements_paths = list(self.worktree_path.glob("**/requirements.txt"))
 
         # Filter out common non-project directories
-        exclude_dirs = {'.venv', 'venv', 'node_modules', '.git', '__pycache__', 'dist', 'build'}
+        exclude_dirs = {".venv", "venv", "node_modules", ".git", "__pycache__", "dist", "build"}
         pyproject_paths = [
             p for p in pyproject_paths if not any(ex in p.parts for ex in exclude_dirs)
         ]
@@ -606,15 +604,13 @@ class EnvironmentSetup:
         return pyproject_paths, requirements_paths
 
     def setup_python(
-        self, auto_install: bool = False, shared_venv: bool = False, repo_path: Optional[Path] = None
+        self,
+        auto_install: bool = False,
+        shared_venv: bool = False,
+        repo_path: Optional[Path] = None,
     ) -> Dict:
         """Setup Python environment with uv or venv"""
-        env_data = {
-            "manager": "none",
-            "active": False,
-            "pyproject": False,
-            "requirements": False
-        }
+        env_data = {"manager": "none", "active": False, "pyproject": False, "requirements": False}
 
         # Find Python project files
         pyproject_paths, requirements_paths = self._find_python_files()
@@ -622,8 +618,8 @@ class EnvironmentSetup:
         pyproject_exists = len(pyproject_paths) > 0
         requirements_exists = len(requirements_paths) > 0
 
-        env_data['pyproject'] = pyproject_exists
-        env_data['requirements'] = requirements_exists
+        env_data["pyproject"] = pyproject_exists
+        env_data["requirements"] = requirements_exists
 
         if not (pyproject_exists or requirements_exists):
             return env_data
@@ -632,9 +628,9 @@ class EnvironmentSetup:
         if shared_venv and repo_path:
             # Search for .venv in repo root and common subdirectories
             venv_search_paths = [
-                repo_path / '.venv',
-                repo_path / 'bankrec' / '.venv',  # Common pattern in your repos
-                *list(repo_path.glob('*/.venv'))  # Any direct subdirectory
+                repo_path / ".venv",
+                repo_path / "bankrec" / ".venv",  # Common pattern in your repos
+                *list(repo_path.glob("*/.venv")),  # Any direct subdirectory
             ]
 
             main_venv = None
@@ -648,10 +644,10 @@ class EnvironmentSetup:
                 # If venv is in a subdirectory, preserve that structure
                 if main_venv.parent != repo_path:
                     subdir = main_venv.parent.name
-                    worktree_venv = self.worktree_path / subdir / '.venv'
+                    worktree_venv = self.worktree_path / subdir / ".venv"
                     worktree_venv.parent.mkdir(parents=True, exist_ok=True)
                 else:
-                    worktree_venv = self.worktree_path / '.venv'
+                    worktree_venv = self.worktree_path / ".venv"
 
                 try:
                     # Create symlink to main repo's venv
@@ -661,8 +657,8 @@ class EnvironmentSetup:
                         else:
                             shutil.rmtree(worktree_venv)
                     worktree_venv.symlink_to(main_venv, target_is_directory=True)
-                    env_data['manager'] = 'shared'
-                    env_data['active'] = True
+                    env_data["manager"] = "shared"
+                    env_data["active"] = True
                     print(f"Created shared venv link: {worktree_venv} -> {main_venv}")
                     return env_data
                 except (OSError, subprocess.CalledProcessError) as e:
@@ -671,17 +667,23 @@ class EnvironmentSetup:
                 print("No .venv found in main repo to share")
 
         # Try uv first
-        if shutil.which('uv'):
+        if shutil.which("uv"):
             try:
-                subprocess.run(['uv', 'venv'], cwd=self.worktree_path, check=True,
-                             capture_output=True)
-                env_data['manager'] = 'uv'
-                env_data['active'] = True
+                subprocess.run(
+                    ["uv", "venv"], cwd=self.worktree_path, check=True, capture_output=True
+                )
+                env_data["manager"] = "uv"
+                env_data["active"] = True
 
                 if auto_install and (pyproject_exists or requirements_exists):
-                    subprocess.run(['uv', 'pip', 'sync'] if pyproject_exists else
-                                 ['uv', 'pip', 'install', '-r', 'requirements.txt'],
-                                 cwd=self.worktree_path, check=True, capture_output=True)
+                    subprocess.run(
+                        ["uv", "pip", "sync"]
+                        if pyproject_exists
+                        else ["uv", "pip", "install", "-r", "requirements.txt"],
+                        cwd=self.worktree_path,
+                        check=True,
+                        capture_output=True,
+                    )
 
                 return env_data
             except subprocess.CalledProcessError:
@@ -689,21 +691,25 @@ class EnvironmentSetup:
 
         # Fallback to venv
         try:
-            subprocess.run([sys.executable, '-m', 'venv', '.venv'],
-                         cwd=self.worktree_path, check=True, capture_output=True)
-            env_data['manager'] = 'venv'
-            env_data['active'] = True
+            subprocess.run(
+                [sys.executable, "-m", "venv", ".venv"],
+                cwd=self.worktree_path,
+                check=True,
+                capture_output=True,
+            )
+            env_data["manager"] = "venv"
+            env_data["active"] = True
 
             if auto_install and requirements_exists:
                 # Validate path safety
-                venv_path = self.worktree_path / '.venv'
+                venv_path = self.worktree_path / ".venv"
                 if not venv_path.exists() or not venv_path.is_dir():
                     raise CprojError(f"Virtual environment not found at {venv_path}")
 
-                if platform.system() == 'Windows':
-                    pip_cmd = venv_path / 'Scripts' / 'pip.exe'
+                if platform.system() == "Windows":
+                    pip_cmd = venv_path / "Scripts" / "pip.exe"
                 else:
-                    pip_cmd = venv_path / 'bin' / 'pip'
+                    pip_cmd = venv_path / "bin" / "pip"
 
                 # Validate pip executable exists and is within expected path
                 if not pip_cmd.exists():
@@ -711,8 +717,12 @@ class EnvironmentSetup:
                 if not str(pip_cmd).startswith(str(self.worktree_path)):
                     raise CprojError(f"pip path {pip_cmd} is outside worktree {self.worktree_path}")
 
-                subprocess.run([str(pip_cmd), 'install', '-r', 'requirements.txt'],
-                             cwd=self.worktree_path, check=True, capture_output=True)
+                subprocess.run(
+                    [str(pip_cmd), "install", "-r", "requirements.txt"],
+                    cwd=self.worktree_path,
+                    check=True,
+                    capture_output=True,
+                )
 
         except subprocess.CalledProcessError:
             pass
@@ -721,23 +731,20 @@ class EnvironmentSetup:
 
     def setup_node(self, auto_install: bool = False) -> Dict:
         """Setup Node environment with nvm"""
-        env_data = {
-            "manager": "none",
-            "node_version": ""
-        }
+        env_data = {"manager": "none", "node_version": ""}
 
-        package_json = self.worktree_path / 'package.json'
-        nvmrc = self.worktree_path / '.nvmrc'
+        package_json = self.worktree_path / "package.json"
+        nvmrc = self.worktree_path / ".nvmrc"
 
         if not package_json.exists():
             return env_data
 
         # Check if nvm is available
-        nvm_path = Path.home() / '.nvm' / 'nvm.sh'
+        nvm_path = Path.home() / ".nvm" / "nvm.sh"
         if not nvm_path.exists():
             return env_data
 
-        env_data['manager'] = 'nvm'
+        env_data["manager"] = "nvm"
 
         try:
             # Use node version from .nvmrc or LTS
@@ -745,11 +752,11 @@ class EnvironmentSetup:
                 with nvmrc.open() as f:
                     node_version = f.read().strip()
             else:
-                node_version = 'lts/*'
+                node_version = "lts/*"
 
             # This would require shell integration in a real implementation
             # For now, just record what we would do
-            env_data['node_version'] = node_version
+            env_data["node_version"] = node_version
 
         except (subprocess.CalledProcessError, OSError) as e:
             logger.debug(f"Error setting up Node environment: {e}")
@@ -761,19 +768,27 @@ class EnvironmentSetup:
         """Setup Java environment"""
         env_data = {"build": "none"}
 
-        if (self.worktree_path / 'pom.xml').exists():
-            env_data['build'] = 'maven'
+        if (self.worktree_path / "pom.xml").exists():
+            env_data["build"] = "maven"
             if auto_build:
                 with contextlib.suppress(subprocess.CalledProcessError, FileNotFoundError):
-                    subprocess.run(['mvn', 'compile', '-DskipTests'],
-                                 cwd=self.worktree_path, check=True, capture_output=True)
+                    subprocess.run(
+                        ["mvn", "compile", "-DskipTests"],
+                        cwd=self.worktree_path,
+                        check=True,
+                        capture_output=True,
+                    )
 
-        elif any((self.worktree_path / f).exists() for f in ['build.gradle', 'build.gradle.kts']):
-            env_data['build'] = 'gradle'
+        elif any((self.worktree_path / f).exists() for f in ["build.gradle", "build.gradle.kts"]):
+            env_data["build"] = "gradle"
             if auto_build:
                 with contextlib.suppress(subprocess.CalledProcessError, FileNotFoundError):
-                    subprocess.run(['./gradlew', 'compileJava'],
-                                 cwd=self.worktree_path, check=True, capture_output=True)
+                    subprocess.run(
+                        ["./gradlew", "compileJava"],
+                        cwd=self.worktree_path,
+                        check=True,
+                        capture_output=True,
+                    )
 
         return env_data
 
@@ -781,7 +796,7 @@ class EnvironmentSetup:
         """Copy .env files from main repo to worktree, searching subdirectories"""
 
         # Find all .env* files in the repo (including subdirectories)
-        env_patterns = ['**/.env', '**/.env.*']
+        env_patterns = ["**/.env", "**/.env.*"]
         found_files = []
 
         for pattern in env_patterns:
@@ -795,11 +810,17 @@ class EnvironmentSetup:
         for source_file in found_files:
             # Skip hidden directories and common build/cache dirs
             allowed_env_files = [
-                '.env', '.env.local', '.env.development',
-                '.env.test', '.env.production', '.env.example'
+                ".env",
+                ".env.local",
+                ".env.development",
+                ".env.test",
+                ".env.production",
+                ".env.example",
             ]
-            if any(part.startswith('.') and part not in allowed_env_files
-                   for part in source_file.relative_to(repo_path).parts[:-1]):
+            if any(
+                part.startswith(".") and part not in allowed_env_files
+                for part in source_file.relative_to(repo_path).parts[:-1]
+            ):
                 continue
 
             # Calculate relative path from repo root
@@ -823,31 +844,31 @@ class TerminalAutomation:
     def _is_test_environment() -> bool:
         """Check if we're running in a test environment"""
         return (
-            'pytest' in sys.modules or
-            'PYTEST_CURRENT_TEST' in os.environ or
-            os.environ.get('CI') == 'true' or
-            'unittest' in sys.modules
+            "pytest" in sys.modules
+            or "PYTEST_CURRENT_TEST" in os.environ
+            or os.environ.get("CI") == "true"
+            or "unittest" in sys.modules
         )
 
     @staticmethod
-    def open_terminal(path: Path, title: str, terminal_app: str = 'Terminal'):
+    def open_terminal(path: Path, title: str, terminal_app: str = "Terminal"):
         """Open terminal at path with title"""
         if TerminalAutomation._is_test_environment():
             print(f"[TEST MODE] Would open terminal: {terminal_app} at {path} with title '{title}'")
             return
 
-        if platform.system() != 'Darwin':
+        if platform.system() != "Darwin":
             print(f"Terminal automation not supported on {platform.system()}")
             return
 
         # Check if setup-claude.sh exists in .cproj directory and build the command
-        setup_script = path / '.cproj' / 'setup-claude.sh'
+        setup_script = path / ".cproj" / "setup-claude.sh"
         if setup_script.exists():
             base_command = f"cd '{path}' && source .cproj/setup-claude.sh"
         else:
             base_command = f"cd '{path}'"
 
-        if terminal_app.lower() == 'iterm':
+        if terminal_app.lower() == "iterm":
             script = f'''
             tell application "iTerm"
                 create window with default profile
@@ -866,7 +887,7 @@ class TerminalAutomation:
             '''
 
         try:
-            subprocess.run(['osascript', '-e', script], check=True, capture_output=True)
+            subprocess.run(["osascript", "-e", script], check=True, capture_output=True)
         except subprocess.CalledProcessError as e:
             print(f"Failed to open terminal: {e}")
 
@@ -891,7 +912,7 @@ class GitHubIntegration:
 
     @staticmethod
     def is_available() -> bool:
-        return shutil.which('gh') is not None
+        return shutil.which("gh") is not None
 
     @staticmethod
     def ensure_auth() -> bool:
@@ -901,7 +922,7 @@ class GitHubIntegration:
 
         try:
             # Check if already authenticated
-            subprocess.run(['gh', 'auth', 'status'], check=True, capture_output=True)
+            subprocess.run(["gh", "auth", "status"], check=True, capture_output=True)
             return True
         except subprocess.CalledProcessError:
             # Not authenticated, try to auth
@@ -918,17 +939,22 @@ class GitHubIntegration:
                     try:
                         # Login with token
                         env = os.environ.copy()
-                        env['GH_TOKEN'] = token
-                        subprocess.run(['gh', 'auth', 'login', '--with-token'],
-                                     input=token, text=True, check=True,
-                                     capture_output=True, env=env)
+                        env["GH_TOKEN"] = token
+                        subprocess.run(
+                            ["gh", "auth", "login", "--with-token"],
+                            input=token,
+                            text=True,
+                            check=True,
+                            capture_output=True,
+                            env=env,
+                        )
                         return True
                     except subprocess.CalledProcessError:
                         print("Failed to authenticate with 1Password token")
 
             # Interactive login
             try:
-                subprocess.run(['gh', 'auth', 'login'], check=True)
+                subprocess.run(["gh", "auth", "login"], check=True)
                 return True
             except subprocess.CalledProcessError:
                 print("GitHub authentication failed")
@@ -942,13 +968,13 @@ class GitHubIntegration:
         if not GitHubIntegration.ensure_auth():
             return None
 
-        cmd = ['gh', 'pr', 'create', '--title', title, '--body', body]
+        cmd = ["gh", "pr", "create", "--title", title, "--body", body]
 
         if draft:
-            cmd.append('--draft')
+            cmd.append("--draft")
 
         if assignees:
-            cmd.extend(['--assignee', ','.join(assignees)])
+            cmd.extend(["--assignee", ",".join(assignees)])
 
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, check=True)
@@ -962,13 +988,13 @@ class GitHubIntegration:
         if not GitHubIntegration.ensure_auth():
             return False
 
-        cmd = ['gh', 'pr', 'merge']
+        cmd = ["gh", "pr", "merge"]
 
         if squash:
-            cmd.append('--squash')
+            cmd.append("--squash")
 
         if delete_branch:
-            cmd.append('--delete-branch')
+            cmd.append("--delete-branch")
 
         try:
             subprocess.run(cmd, check=True)
@@ -995,22 +1021,22 @@ class CprojCLI:
         print("-" * 50)
 
         project_name = input("Project name (display name): ").strip()
-        config['project_name'] = project_name or "My Project"
+        config["project_name"] = project_name or "My Project"
 
         # Repository
         repo_input = input("Repository path or URL (. for current directory): ").strip()
-        if repo_input == '.' or not repo_input:
+        if repo_input == "." or not repo_input:
             repo_path = Path.cwd()
             # If we're in a subdirectory of a git repo, find the root
             git_root = self._find_git_root(repo_path)
             if git_root:
                 repo_path = git_root
                 print(f"Found git repository root at: {repo_path}")
-        elif repo_input.startswith('http'):
+        elif repo_input.startswith("http"):
             # It's a URL, we'll clone it
             clone_to = input(f"Clone to directory [{Path.home() / 'dev' / project_name}]: ").strip()
-            repo_path = Path(clone_to) if clone_to else (Path.home() / 'dev' / project_name)
-            config['clone_url'] = repo_input
+            repo_path = Path(clone_to) if clone_to else (Path.home() / "dev" / project_name)
+            config["clone_url"] = repo_input
         else:
             repo_path = Path(repo_input).expanduser().absolute()
             # If the path exists and is inside a git repo, find the root
@@ -1020,10 +1046,10 @@ class CprojCLI:
                     repo_path = git_root
                     print(f"Found git repository root at: {repo_path}")
 
-        config['repo_path'] = str(repo_path)
+        config["repo_path"] = str(repo_path)
 
         base_branch = input("Default base branch [main]: ").strip()
-        config['base_branch'] = base_branch or 'main'
+        config["base_branch"] = base_branch or "main"
 
         print()
 
@@ -1031,18 +1057,18 @@ class CprojCLI:
         print("🏗️  Workspace Policy")
         print("-" * 50)
 
-        default_temp = str(Path.home() / '.cache' / 'cproj-workspaces')
+        default_temp = str(Path.home() / ".cache" / "cproj-workspaces")
         temp_root = input(f"Temp root for worktrees [{default_temp}]: ").strip()
-        config['temp_root'] = temp_root or default_temp
+        config["temp_root"] = temp_root or default_temp
 
         branch_scheme = input("Branch naming scheme [feature/{ticket}-{slug}]: ").strip()
-        config['branch_scheme'] = branch_scheme or 'feature/{ticket}-{slug}'
+        config["branch_scheme"] = branch_scheme or "feature/{ticket}-{slug}"
 
         cleanup_days = input("Auto-cleanup age threshold (days) [14]: ").strip()
         try:
-            config['cleanup_days'] = int(cleanup_days) if cleanup_days else 14
+            config["cleanup_days"] = int(cleanup_days) if cleanup_days else 14
         except ValueError:
-            config['cleanup_days'] = 14
+            config["cleanup_days"] = 14
 
         print()
 
@@ -1051,19 +1077,19 @@ class CprojCLI:
         print("-" * 50)
 
         use_uv = input("Prefer uv for Python? [Y/n]: ").strip().lower()
-        config['python_prefer_uv'] = use_uv not in ['n', 'no']
+        config["python_prefer_uv"] = use_uv not in ["n", "no"]
 
         auto_install_python = input("Auto-install Python dependencies? [Y/n]: ").strip().lower()
-        config['python_auto_install'] = auto_install_python not in ['n', 'no']
+        config["python_auto_install"] = auto_install_python not in ["n", "no"]
 
         use_nvm = input("Use nvm for Node? [Y/n]: ").strip().lower()
-        config['node_use_nvm'] = use_nvm not in ['n', 'no']
+        config["node_use_nvm"] = use_nvm not in ["n", "no"]
 
         auto_install_node = input("Auto-install Node dependencies? [Y/n]: ").strip().lower()
-        config['node_auto_install'] = auto_install_node not in ['n', 'no']
+        config["node_auto_install"] = auto_install_node not in ["n", "no"]
 
         auto_build_java = input("Auto-build Java projects? [y/N]: ").strip().lower()
-        config['java_auto_build'] = auto_build_java in ['y', 'yes']
+        config["java_auto_build"] = auto_build_java in ["y", "yes"]
 
         print()
 
@@ -1071,19 +1097,19 @@ class CprojCLI:
         print("🛠️  Tools & Automation")
         print("-" * 50)
 
-        if platform.system() == 'Darwin':
+        if platform.system() == "Darwin":
             terminal = input("Terminal app [Terminal/iTerm/none]: ").strip()
-            if terminal.lower() in ['iterm', 'iterm2']:
-                config['terminal'] = 'iTerm'
-            elif terminal.lower() == 'none':
-                config['terminal'] = 'none'
+            if terminal.lower() in ["iterm", "iterm2"]:
+                config["terminal"] = "iTerm"
+            elif terminal.lower() == "none":
+                config["terminal"] = "none"
             else:
-                config['terminal'] = 'Terminal'
+                config["terminal"] = "Terminal"
         else:
-            config['terminal'] = 'none'
+            config["terminal"] = "none"
 
         editor = input("Editor command [code]: ").strip()
-        config['editor'] = editor or 'code'
+        config["editor"] = editor or "code"
 
         print()
 
@@ -1095,20 +1121,20 @@ class CprojCLI:
         print("Configure Linear integration for ticket creation:")
         linear_org = input("Linear organization URL (optional): ").strip()
         if linear_org:
-            config['linear_org'] = linear_org
+            config["linear_org"] = linear_org
 
             # Get Linear team and project info
             linear_team = input("Default Linear team ID/key (optional): ").strip()
             if linear_team:
-                config['linear_default_team'] = linear_team
+                config["linear_default_team"] = linear_team
 
             linear_project = input("Default Linear project ID (optional): ").strip()
             if linear_project:
-                config['linear_default_project'] = linear_project
+                config["linear_default_project"] = linear_project
 
             # Ask about API key setup
             setup_api_key = input("Setup Linear API key now? [y/N]: ").strip().lower()
-            if setup_api_key in ['y', 'yes']:
+            if setup_api_key in ["y", "yes"]:
                 print("\n📝 Linear API Key Setup:")
                 print("1. Go to https://linear.app/settings/api")
                 print("2. Create a new Personal API Key")
@@ -1126,10 +1152,10 @@ class CprojCLI:
             "Default GitHub reviewers (comma-separated, optional): "
         ).strip()
         if github_default_reviewers:
-            config['github_reviewers'] = [r.strip() for r in github_default_reviewers.split(',')]
+            config["github_reviewers"] = [r.strip() for r in github_default_reviewers.split(",")]
 
         draft_prs = input("Create draft PRs by default? [y/N]: ").strip().lower()
-        config['github_draft_default'] = draft_prs in ['y', 'yes']
+        config["github_draft_default"] = draft_prs in ["y", "yes"]
 
         print()
 
@@ -1137,20 +1163,26 @@ class CprojCLI:
         print("🤖 Claude IDE Integration")
         print("-" * 50)
 
-        claude_symlink = input(
-            "Auto-create CLAUDE.md/.cursorrules symlinks in worktrees? [Y/n]: "
-        ).strip().lower()
-        config['claude_symlink_default'] = 'no' if claude_symlink in ['n', 'no'] else 'yes'
+        claude_symlink = (
+            input("Auto-create CLAUDE.md/.cursorrules symlinks in worktrees? [Y/n]: ")
+            .strip()
+            .lower()
+        )
+        config["claude_symlink_default"] = "no" if claude_symlink in ["n", "no"] else "yes"
 
-        claude_nvm = input(
-            "Auto-create nvm setup scripts for Claude CLI in worktrees? [Y/n]: "
-        ).strip().lower()
-        config['claude_nvm_default'] = 'no' if claude_nvm in ['n', 'no'] else 'yes'
+        claude_nvm = (
+            input("Auto-create nvm setup scripts for Claude CLI in worktrees? [Y/n]: ")
+            .strip()
+            .lower()
+        )
+        config["claude_nvm_default"] = "no" if claude_nvm in ["n", "no"] else "yes"
 
-        claude_workspace = input(
-            "Auto-setup Claude workspace with commands and agents in worktrees? [Y/n]: "
-        ).strip().lower()
-        config['claude_workspace_default'] = 'no' if claude_workspace in ['n', 'no'] else 'yes'
+        claude_workspace = (
+            input("Auto-setup Claude workspace with commands and agents in worktrees? [Y/n]: ")
+            .strip()
+            .lower()
+        )
+        config["claude_workspace_default"] = "no" if claude_workspace in ["n", "no"] else "yes"
 
         print()
 
@@ -1161,11 +1193,11 @@ class CprojCLI:
             print("1Password CLI detected! You can store GitHub tokens and other secrets securely.")
 
             use_1password = input("Use 1Password for secrets? [Y/n]: ").strip().lower()
-            config['use_1password'] = use_1password not in ['n', 'no']
+            config["use_1password"] = use_1password not in ["n", "no"]
 
-            if config.get('use_1password'):
+            if config.get("use_1password"):
                 vault = input("Default 1Password vault [Private]: ").strip()
-                config['onepassword_vault'] = vault or 'Private'
+                config["onepassword_vault"] = vault or "Private"
 
             print()
 
@@ -1179,17 +1211,17 @@ class CprojCLI:
         print(f"Terminal: {config.get('terminal', 'none')}")
         print(f"Editor: {config.get('editor', 'none')}")
 
-        if config.get('linear_org'):
+        if config.get("linear_org"):
             print(f"Linear: {config['linear_org']}")
-        if config.get('github_reviewers'):
+        if config.get("github_reviewers"):
             print(f"GitHub reviewers: {', '.join(config['github_reviewers'])}")
-        if config.get('use_1password'):
+        if config.get("use_1password"):
             print(f"1Password: enabled (vault: {config.get('onepassword_vault')})")
 
         print()
 
         confirm = input("Save this configuration? [Y/n]: ").strip().lower()
-        if confirm in ['n', 'no']:
+        if confirm in ["n", "no"]:
             print("Configuration cancelled.")
             sys.exit(1)
 
@@ -1197,83 +1229,85 @@ class CprojCLI:
 
     def create_parser(self) -> argparse.ArgumentParser:
         """Create argument parser"""
-        parser = argparse.ArgumentParser(description='Multi-project CLI with git worktree + uv')
-        parser.add_argument('--repo', help='Repository path')
-        parser.add_argument('--base', help='Base branch')
-        parser.add_argument('--temp-root', help='Temp root for worktrees')
+        parser = argparse.ArgumentParser(description="Multi-project CLI with git worktree + uv")
+        parser.add_argument("--repo", help="Repository path")
+        parser.add_argument("--base", help="Base branch")
+        parser.add_argument("--temp-root", help="Temp root for worktrees")
         parser.add_argument(
-            '--terminal', choices=['Terminal', 'iTerm', 'none'], help='Terminal app'
+            "--terminal", choices=["Terminal", "iTerm", "none"], help="Terminal app"
         )
-        parser.add_argument('--editor', help='Editor command')
-        parser.add_argument('--yes', action='store_true', help='Skip confirmations')
-        parser.add_argument('--verbose', action='store_true', help='Verbose output')
-        parser.add_argument('--json', action='store_true', help='JSON output')
+        parser.add_argument("--editor", help="Editor command")
+        parser.add_argument("--yes", action="store_true", help="Skip confirmations")
+        parser.add_argument("--verbose", action="store_true", help="Verbose output")
+        parser.add_argument("--json", action="store_true", help="JSON output")
         parser.add_argument(
-            '--log-level', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
-            default='INFO', help='Set logging level (default: INFO)'
+            "--log-level",
+            choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+            default="INFO",
+            help="Set logging level (default: INFO)",
         )
 
-        subparsers = parser.add_subparsers(dest='command', help='Commands')
+        subparsers = parser.add_subparsers(dest="command", help="Commands")
 
         # init command
         init_parser = subparsers.add_parser(
-            'init', aliases=['new', 'start'], help='Initialize project'
+            "init", aliases=["new", "start"], help="Initialize project"
         )
-        init_parser.add_argument('--name', help='Project name')
-        init_parser.add_argument('--clone', help='Clone URL if repo not local')
+        init_parser.add_argument("--name", help="Project name")
+        init_parser.add_argument("--clone", help="Clone URL if repo not local")
 
         # worktree create command
-        wt_create = subparsers.add_parser('worktree', aliases=['w'], help='Worktree commands')
-        wt_sub = wt_create.add_subparsers(dest='worktree_command')
+        wt_create = subparsers.add_parser("worktree", aliases=["w"], help="Worktree commands")
+        wt_sub = wt_create.add_subparsers(dest="worktree_command")
 
-        create_parser = wt_sub.add_parser('create', help='Create worktree')
-        create_parser.add_argument('--branch', help='Branch name')
-        create_parser.add_argument('--linear', help='Linear issue URL')
+        create_parser = wt_sub.add_parser("create", help="Create worktree")
+        create_parser.add_argument("--branch", help="Branch name")
+        create_parser.add_argument("--linear", help="Linear issue URL")
         create_parser.add_argument(
-            '--python-install', action='store_true', help='Auto-install Python deps'
+            "--python-install", action="store_true", help="Auto-install Python deps"
         )
         create_parser.add_argument(
-            '--shared-venv', action='store_true',
-            help='Link to main repo venv instead of creating new one'
+            "--shared-venv",
+            action="store_true",
+            help="Link to main repo venv instead of creating new one",
         )
         create_parser.add_argument(
-            '--copy-env', action='store_true', help='Copy .env files from main repo'
+            "--copy-env", action="store_true", help="Copy .env files from main repo"
         )
         create_parser.add_argument(
-            '--node-install', action='store_true', help='Auto-install Node deps'
+            "--node-install", action="store_true", help="Auto-install Node deps"
         )
-        create_parser.add_argument('--java-build', action='store_true', help='Auto-build Java')
+        create_parser.add_argument("--java-build", action="store_true", help="Auto-build Java")
         create_parser.add_argument(
-            '--open-editor', action='store_true', help='Open editor after creating worktree'
-        )
-        create_parser.add_argument(
-            '--no-terminal', action='store_true',
-            help='Do not open terminal after creating worktree'
+            "--open-editor", action="store_true", help="Open editor after creating worktree"
         )
         create_parser.add_argument(
-            '--setup-claude', action='store_true', help='Force setup Claude workspace'
+            "--no-terminal",
+            action="store_true",
+            help="Do not open terminal after creating worktree",
         )
         create_parser.add_argument(
-            '--no-claude', action='store_true', help='Skip Claude workspace setup'
+            "--setup-claude", action="store_true", help="Force setup Claude workspace"
+        )
+        create_parser.add_argument(
+            "--no-claude", action="store_true", help="Skip Claude workspace setup"
         )
 
         # review command
-        review_parser = subparsers.add_parser('review', help='Review commands')
-        review_sub = review_parser.add_subparsers(dest='review_command')
+        review_parser = subparsers.add_parser("review", help="Review commands")
+        review_sub = review_parser.add_subparsers(dest="review_command")
 
-        open_parser = review_sub.add_parser('open', help='Open review')
+        open_parser = review_sub.add_parser("open", help="Open review")
         open_parser.add_argument(
-            '--draft', action='store_true', help='Create draft PR (default is ready for review)'
+            "--draft", action="store_true", help="Create draft PR (default is ready for review)"
         )
         open_parser.add_argument(
-            '--ready', action='store_true', help='[Deprecated] Create ready PR (now default)'
+            "--ready", action="store_true", help="[Deprecated] Create ready PR (now default)"
         )
-        open_parser.add_argument('--assign', help='Assignees (comma-separated)')
+        open_parser.add_argument("--assign", help="Assignees (comma-separated)")
+        open_parser.add_argument("--no-push", action="store_true", help="Don't push branch")
         open_parser.add_argument(
-            '--no-push', action='store_true', help='Don\'t push branch'
-        )
-        open_parser.add_argument(
-            '--no-agents', action='store_true', help='Skip automated review agents'
+            "--no-agents", action="store_true", help="Skip automated review agents"
         )
 
         # Legacy 'cproj review agents' removed in favor of 'review-code' command
@@ -1281,66 +1315,65 @@ class CprojCLI:
         # The new system provides better input validation and safer execution
 
         # merge command
-        merge_parser = subparsers.add_parser('merge', help='Merge and cleanup')
+        merge_parser = subparsers.add_parser("merge", help="Merge and cleanup")
         merge_parser.add_argument(
-            '--squash', action='store_true', default=True, help='Squash merge'
+            "--squash", action="store_true", default=True, help="Squash merge"
         )
         merge_parser.add_argument(
-            '--merge', dest='squash', action='store_false', help='Merge commit'
+            "--merge", dest="squash", action="store_false", help="Merge commit"
         )
         merge_parser.add_argument(
-            '--delete-remote', action='store_true', help='Delete remote branch'
+            "--delete-remote", action="store_true", help="Delete remote branch"
         )
-        merge_parser.add_argument(
-            '--keep-worktree', action='store_true', help='Keep worktree'
-        )
-        merge_parser.add_argument(
-            '--force', action='store_true', help='Force merge even if dirty'
-        )
+        merge_parser.add_argument("--keep-worktree", action="store_true", help="Keep worktree")
+        merge_parser.add_argument("--force", action="store_true", help="Force merge even if dirty")
 
         # list command
-        subparsers.add_parser('list', aliases=['ls'], help='List worktrees')
+        subparsers.add_parser("list", aliases=["ls"], help="List worktrees")
 
         # status command
-        status_parser = subparsers.add_parser('status', aliases=['st'], help='Show status')
-        status_parser.add_argument('path', nargs='?', help='Worktree path')
+        status_parser = subparsers.add_parser("status", aliases=["st"], help="Show status")
+        status_parser.add_argument("path", nargs="?", help="Worktree path")
 
         # cleanup command
-        cleanup_parser = subparsers.add_parser('cleanup', help='Cleanup worktrees')
-        cleanup_parser.add_argument('--older-than', type=int, help='Days old')
+        cleanup_parser = subparsers.add_parser("cleanup", help="Cleanup worktrees")
+        cleanup_parser.add_argument("--older-than", type=int, help="Days old")
         cleanup_parser.add_argument(
-            '--merged-only', action='store_true', help='Only merged branches'
+            "--merged-only", action="store_true", help="Only merged branches"
         )
         cleanup_parser.add_argument(
-            '--dry-run', action='store_true', help='Show what would be done'
+            "--dry-run", action="store_true", help="Show what would be done"
         )
         cleanup_parser.add_argument(
-            '--force', action='store_true', help='Force removal of dirty worktrees'
+            "--force", action="store_true", help="Force removal of dirty worktrees"
         )
 
         # open command
-        open_parser = subparsers.add_parser('open', help='Open workspace')
-        open_parser.add_argument('path', nargs='?', help='Worktree path')
+        open_parser = subparsers.add_parser("open", help="Open workspace")
+        open_parser.add_argument("path", nargs="?", help="Worktree path")
 
         # config command
-        config_parser = subparsers.add_parser('config', help='Configuration')
-        config_parser.add_argument('key', nargs='?', help='Config key')
-        config_parser.add_argument('value', nargs='?', help='Config value')
+        config_parser = subparsers.add_parser("config", help="Configuration")
+        config_parser.add_argument("key", nargs="?", help="Config key")
+        config_parser.add_argument("value", nargs="?", help="Config value")
 
         # linear config command
-        linear_parser = subparsers.add_parser('linear', help='Linear integration management')
-        linear_sub = linear_parser.add_subparsers(dest='linear_command')
+        linear_parser = subparsers.add_parser("linear", help="Linear integration management")
+        linear_sub = linear_parser.add_subparsers(dest="linear_command")
 
-        linear_setup = linear_sub.add_parser('setup', help='Setup Linear integration')
-        linear_setup.add_argument('--api-key', help='Linear API key')
-        linear_setup.add_argument('--from-1password', action='store_true',
-                                 help='Configure Linear API key from 1Password reference')
-        linear_setup.add_argument('--team', help='Default team ID/key')
-        linear_setup.add_argument('--project', help='Default project ID')
-        linear_setup.add_argument('--org', help='Linear organization URL')
+        linear_setup = linear_sub.add_parser("setup", help="Setup Linear integration")
+        linear_setup.add_argument("--api-key", help="Linear API key")
+        linear_setup.add_argument(
+            "--from-1password",
+            action="store_true",
+            help="Configure Linear API key from 1Password reference",
+        )
+        linear_setup.add_argument("--team", help="Default team ID/key")
+        linear_setup.add_argument("--project", help="Default project ID")
+        linear_setup.add_argument("--org", help="Linear organization URL")
 
-        linear_sub.add_parser('test', help='Test Linear integration')
-        linear_sub.add_parser('status', help='Show Linear configuration status')
+        linear_sub.add_parser("test", help="Test Linear integration")
+        linear_sub.add_parser("status", help="Show Linear configuration status")
 
         return parser
 
@@ -1358,33 +1391,33 @@ class CprojCLI:
             logger.setLevel(logging.DEBUG)
 
         try:
-            if parsed_args.command == 'init' or parsed_args.command in ['new', 'start']:
+            if parsed_args.command == "init" or parsed_args.command in ["new", "start"]:
                 self.cmd_init(parsed_args)
-            elif parsed_args.command in {'worktree', 'w'}:
-                if parsed_args.worktree_command == 'create':
+            elif parsed_args.command in {"worktree", "w"}:
+                if parsed_args.worktree_command == "create":
                     self.cmd_worktree_create(parsed_args)
                 else:
                     # Show worktree help when no subcommand given
-                    parser.parse_args(['worktree', '--help'])
-            elif parsed_args.command == 'review':
-                if parsed_args.review_command == 'open':
+                    parser.parse_args(["worktree", "--help"])
+            elif parsed_args.command == "review":
+                if parsed_args.review_command == "open":
                     self.cmd_review_open(parsed_args)
                 else:
                     # Show review help when no subcommand given
-                    parser.parse_args(['review', '--help'])
-            elif parsed_args.command == 'merge':
+                    parser.parse_args(["review", "--help"])
+            elif parsed_args.command == "merge":
                 self.cmd_merge(parsed_args)
-            elif parsed_args.command in ['list', 'ls']:
+            elif parsed_args.command in ["list", "ls"]:
                 self.cmd_list(parsed_args)
-            elif parsed_args.command in ['status', 'st']:
+            elif parsed_args.command in ["status", "st"]:
                 self.cmd_status(parsed_args)
-            elif parsed_args.command == 'cleanup':
+            elif parsed_args.command == "cleanup":
                 self.cmd_cleanup(parsed_args)
-            elif parsed_args.command == 'open':
+            elif parsed_args.command == "open":
                 self.cmd_open(parsed_args)
-            elif parsed_args.command == 'config':
+            elif parsed_args.command == "config":
                 self.cmd_config(parsed_args)
-            elif parsed_args.command == 'linear':
+            elif parsed_args.command == "linear":
                 self.cmd_linear(parsed_args)
             else:
                 parser.print_help()
@@ -1402,12 +1435,12 @@ class CprojCLI:
 
         # Check if current directory is a git repository
         while current != current.parent:
-            if (current / '.git').exists():
+            if (current / ".git").exists():
                 return current
             current = current.parent
 
         # Check root directory
-        if (current / '.git').exists():
+        if (current / ".git").exists():
             return current
 
         return None
@@ -1421,14 +1454,14 @@ class CprojCLI:
         print()
 
         # Check if we already have system config
-        if self.config.get('temp_root'):
+        if self.config.get("temp_root"):
             print("✅ cproj is already configured!")
             print()
             print("Current system settings:")
             self._show_system_config()
             print()
             proceed = input("Reconfigure system settings? [y/N]: ").strip().lower()
-            if proceed not in ['y', 'yes']:
+            if proceed not in ["y", "yes"]:
                 return
 
         # Run system configuration
@@ -1466,17 +1499,17 @@ class CprojCLI:
 
         # Use defaults in non-interactive mode
         if not self._is_interactive():
-            default_temp = str(Path.home() / '.cache' / 'cproj-workspaces')
+            default_temp = str(Path.home() / ".cache" / "cproj-workspaces")
             default_terminal = "Terminal" if sys.platform == "darwin" else "none"
-            config['temp_root'] = default_temp
-            config['terminal'] = default_terminal
-            config['editor'] = "code"
-            config['python_prefer_uv'] = True
-            config['node_use_nvm'] = True
-            config['linear_org'] = ""
-            config['linear_default_team'] = ""
-            config['linear_default_project'] = ""
-            config['github_user'] = ""
+            config["temp_root"] = default_temp
+            config["terminal"] = default_terminal
+            config["editor"] = "code"
+            config["python_prefer_uv"] = True
+            config["node_use_nvm"] = True
+            config["linear_org"] = ""
+            config["linear_default_team"] = ""
+            config["linear_default_project"] = ""
+            config["github_user"] = ""
             print("Non-interactive mode: Using defaults")
             print(f"  Temp directory: {default_temp}")
             print(f"  Terminal: {default_terminal}")
@@ -1486,26 +1519,26 @@ class CprojCLI:
             return config
 
         # Temp directory for worktrees
-        default_temp = str(Path.home() / '.cache' / 'cproj-workspaces')
+        default_temp = str(Path.home() / ".cache" / "cproj-workspaces")
         temp_root = input(f"Temp directory for worktrees [{default_temp}]: ").strip()
-        config['temp_root'] = temp_root or default_temp
+        config["temp_root"] = temp_root or default_temp
 
         # Terminal preference
         default_terminal = "Terminal" if sys.platform == "darwin" else "none"
         terminal = input(f"Terminal app (Terminal, iTerm, none) [{default_terminal}]: ").strip()
-        config['terminal'] = terminal or default_terminal
+        config["terminal"] = terminal or default_terminal
 
         # Editor preference
         editor = input("Editor command (code, cursor, vim, etc.) [code]: ").strip()
-        config['editor'] = editor or 'code'
+        config["editor"] = editor or "code"
 
         # Python preferences
         python_uv = input("Prefer uv for Python environments? [Y/n]: ").strip().lower()
-        config['python_prefer_uv'] = python_uv != 'n'
+        config["python_prefer_uv"] = python_uv != "n"
 
         # Node preferences
         node_nvm = input("Use nvm for Node.js? [Y/n]: ").strip().lower()
-        config['node_use_nvm'] = node_nvm != 'n'
+        config["node_use_nvm"] = node_nvm != "n"
 
         # Optional integrations
         print()
@@ -1515,12 +1548,12 @@ class CprojCLI:
         # Linear
         linear_org = input("Linear organization (optional): ").strip()
         if linear_org:
-            config['linear_org'] = linear_org
+            config["linear_org"] = linear_org
 
         # GitHub reviewers
         github_reviewers = input("GitHub default reviewers (comma-separated, optional): ").strip()
         if github_reviewers:
-            config['github_reviewers'] = [r.strip() for r in github_reviewers.split(',')]
+            config["github_reviewers"] = [r.strip() for r in github_reviewers.split(",")]
 
         return config
 
@@ -1531,12 +1564,12 @@ class CprojCLI:
     def _setup_claude_symlink(self, worktree_path: Path, repo_path: Path):
         """Setup CLAUDE.md/.cursorrules symlink in new worktree"""
         # Check if repo has CLAUDE.md
-        claude_md = repo_path / 'CLAUDE.md'
+        claude_md = repo_path / "CLAUDE.md"
         if not claude_md.exists():
             return
 
         # Check if repo has .cursorrules symlinked to CLAUDE.md
-        cursorrules = repo_path / '.cursorrules'
+        cursorrules = repo_path / ".cursorrules"
         if not cursorrules.is_symlink():
             return
 
@@ -1548,38 +1581,38 @@ class CprojCLI:
             return
 
         # Check if worktree already has .cursorrules
-        worktree_cursorrules = worktree_path / '.cursorrules'
+        worktree_cursorrules = worktree_path / ".cursorrules"
         if worktree_cursorrules.exists():
             return
 
         # Get default action from config
-        default_action = self.config.get('claude_symlink_default', 'yes')
+        default_action = self.config.get("claude_symlink_default", "yes")
 
         # Prompt user if interactive
         if self._is_interactive():
             print("\n🔗 CLAUDE.md Configuration")
             print(f"Found CLAUDE.md symlinked as .cursorrules in {repo_path.name}")
 
-            if default_action == 'yes':
+            if default_action == "yes":
                 response = input("Create .cursorrules symlink in worktree? [Y/n]: ").strip().lower()
-                create_link = response in ('', 'y', 'yes')
+                create_link = response in ("", "y", "yes")
             else:
                 response = input("Create .cursorrules symlink in worktree? [y/N]: ").strip().lower()
-                create_link = response in ('y', 'yes')
+                create_link = response in ("y", "yes")
         else:
             # Non-interactive: use default
-            create_link = default_action == 'yes'
+            create_link = default_action == "yes"
 
         if create_link:
             try:
                 # First copy CLAUDE.md to worktree if it doesn't exist
-                worktree_claude = worktree_path / 'CLAUDE.md'
+                worktree_claude = worktree_path / "CLAUDE.md"
                 if not worktree_claude.exists():
                     shutil.copy2(claude_md, worktree_claude)
                     print("✅ Copied CLAUDE.md to worktree")
 
                 # Create relative symlink to CLAUDE.md
-                worktree_cursorrules.symlink_to('CLAUDE.md')
+                worktree_cursorrules.symlink_to("CLAUDE.md")
                 print("✅ Created .cursorrules -> CLAUDE.md symlink")
             except OSError as e:
                 print(f"⚠️  Failed to create .cursorrules symlink: {e}")
@@ -1587,40 +1620,40 @@ class CprojCLI:
     def _setup_nvm_for_claude(self, worktree_path: Path, node_env: Dict):
         """Setup nvm and create a script to automatically use LTS for Claude CLI"""
         # Check if nvm is available on the system (regardless of project setup)
-        nvm_path = Path.home() / '.nvm' / 'nvm.sh'
+        nvm_path = Path.home() / ".nvm" / "nvm.sh"
         if not nvm_path.exists():
             return
 
         # Get default action from config
-        default_action = self.config.get('claude_nvm_default', 'yes')
+        default_action = self.config.get("claude_nvm_default", "yes")
 
         # Check if we should set up nvm automation
-        setup_nvm = default_action == 'yes'
+        setup_nvm = default_action == "yes"
 
         if self._is_interactive():
             print("\n🚀 Node.js Setup for Claude CLI")
             print("Claude CLI requires Node.js LTS to run properly.")
 
-            if default_action == 'yes':
-                response = input(
-                    "Create nvm setup script for this worktree? [Y/n]: "
-                ).strip().lower()
-                setup_nvm = response in ('', 'y', 'yes')
+            if default_action == "yes":
+                response = (
+                    input("Create nvm setup script for this worktree? [Y/n]: ").strip().lower()
+                )
+                setup_nvm = response in ("", "y", "yes")
             else:
-                response = input(
-                    "Create nvm setup script for this worktree? [y/N]: "
-                ).strip().lower()
-                setup_nvm = response in ('y', 'yes')
+                response = (
+                    input("Create nvm setup script for this worktree? [y/N]: ").strip().lower()
+                )
+                setup_nvm = response in ("y", "yes")
 
         if setup_nvm:
             try:
                 # Create .cproj directory for cproj-specific files
-                cproj_dir = worktree_path / '.cproj'
+                cproj_dir = worktree_path / ".cproj"
                 cproj_dir.mkdir(exist_ok=True)
 
                 # Create a setup script that sources nvm and uses LTS
-                setup_script = cproj_dir / 'setup-claude.sh'
-                script_content = '''#!/bin/bash
+                setup_script = cproj_dir / "setup-claude.sh"
+                script_content = """#!/bin/bash
 # Auto-generated script to setup Node.js for Claude CLI
 # Run: source .cproj/setup-claude.sh
 
@@ -1635,7 +1668,7 @@ nvm use --lts
 
 echo "✅ Node.js LTS activated. You can now run 'claude' command."
 echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new terminal in this directory"
-'''
+"""
                 setup_script.write_text(script_content)
                 setup_script.chmod(0o755)
 
@@ -1651,48 +1684,48 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         """Setup Claude workspace configuration with commands and agents"""
         # Get cproj's Claude templates
         cproj_root = Path(__file__).parent
-        cproj_claude_dir = cproj_root / '.claude'
+        cproj_claude_dir = cproj_root / ".claude"
 
         # Check target project's .claude directory
-        project_claude_dir = repo_path / '.claude'
+        project_claude_dir = repo_path / ".claude"
 
         # Need at least cproj templates to proceed
         if not cproj_claude_dir.exists():
             return
 
         # Handle explicit command-line flags
-        if args and hasattr(args, 'no_claude') and args.no_claude:
+        if args and hasattr(args, "no_claude") and args.no_claude:
             return
 
         # Check if we should set up Claude workspace
-        default_action = self.config.get('claude_workspace_default', 'yes')
-        setup_workspace = default_action == 'yes'
+        default_action = self.config.get("claude_workspace_default", "yes")
+        setup_workspace = default_action == "yes"
 
         # Override with explicit --setup-claude flag
-        if args and hasattr(args, 'setup_claude') and args.setup_claude:
+        if args and hasattr(args, "setup_claude") and args.setup_claude:
             setup_workspace = True
 
         if self._is_interactive():
             print("\n🤖 Claude Workspace Setup")
             print("Found Claude commands and agents configuration.")
 
-            if default_action == 'yes':
+            if default_action == "yes":
                 response = input("Setup Claude workspace in worktree? [Y/n]: ").strip().lower()
-                setup_workspace = response in ('', 'y', 'yes')
+                setup_workspace = response in ("", "y", "yes")
             else:
                 response = input("Setup Claude workspace in worktree? [y/N]: ").strip().lower()
-                setup_workspace = response in ('y', 'yes')
+                setup_workspace = response in ("y", "yes")
 
         if setup_workspace:
             print(f"🔧 Setting up Claude workspace in {worktree_path}")
             try:
                 # Create .claude directory in worktree
-                worktree_claude_dir = worktree_path / '.claude'
+                worktree_claude_dir = worktree_path / ".claude"
                 worktree_claude_dir.mkdir(exist_ok=True)
                 print(f"Created .claude directory: {worktree_claude_dir}")
 
                 # Start with cproj templates as base, then merge project configs
-                for subdir in ['commands', 'agents']:
+                for subdir in ["commands", "agents"]:
                     cproj_source_dir = cproj_claude_dir / subdir
                     target_dir = worktree_claude_dir / subdir
 
@@ -1724,19 +1757,19 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                 # Copy MCP config (prefer project over cproj template)
                 mcp_source = None
                 if project_claude_dir.exists():
-                    project_mcp = project_claude_dir / 'mcp_config.json'
+                    project_mcp = project_claude_dir / "mcp_config.json"
                     if project_mcp.exists():
                         mcp_source = project_mcp
                         print("  ✅ Using project mcp_config.json")
 
                 if not mcp_source:
-                    cproj_mcp = cproj_claude_dir / 'mcp_config.json'
+                    cproj_mcp = cproj_claude_dir / "mcp_config.json"
                     if cproj_mcp.exists():
                         mcp_source = cproj_mcp
                         print("  ✅ Using cproj mcp_config.json")
 
                 if mcp_source:
-                    shutil.copy2(mcp_source, worktree_claude_dir / 'mcp_config.json')
+                    shutil.copy2(mcp_source, worktree_claude_dir / "mcp_config.json")
 
                 # Load Linear configuration
                 self._load_linear_config()
@@ -1746,33 +1779,37 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                     "project_root": str(repo_path),
                     "worktree_path": str(worktree_path),
                     "linear": {
-                        "org": self.config.get('linear_org'),
-                        "default_team": self.config.get('linear_default_team'),
-                        "default_project": self.config.get('linear_default_project'),
-                        "api_key_file": ".env.linear"
+                        "org": self.config.get("linear_org"),
+                        "default_team": self.config.get("linear_default_team"),
+                        "default_project": self.config.get("linear_default_project"),
+                        "api_key_file": ".env.linear",
                     },
                     "commands": {
                         "add-ticket": {
                             "description": "Create comprehensive Linear tickets using AI agents",
-                            "agents": ["product-manager", "ux-designer", "senior-software-engineer"],
-                            "requires_mcp": ["linear"]
+                            "agents": [
+                                "product-manager",
+                                "ux-designer",
+                                "senior-software-engineer",
+                            ],
+                            "requires_mcp": ["linear"],
                         },
                         "review-code": {
                             "description": "Run comprehensive AI-powered code review using specialized review agents",
                             "agents": ["senior-developer", "qa-engineer", "security-reviewer"],
-                            "requires_git": True
-                        }
+                            "requires_git": True,
+                        },
                     },
                     "agents": {
                         "product-manager": "Turn high-level asks into crisp PRDs",
                         "ux-designer": "Create clear, accessible, user-centric designs",
                         "senior-software-engineer": "Plan implementation with tests and docs",
-                        "code-reviewer": "Review code for correctness and maintainability"
-                    }
+                        "code-reviewer": "Review code for correctness and maintainability",
+                    },
                 }
 
-                config_file = worktree_claude_dir / 'workspace.json'
-                with config_file.open('w') as f:
+                config_file = worktree_claude_dir / "workspace.json"
+                with config_file.open("w") as f:
                     json.dump(workspace_config, f, indent=2)
 
                 print("✅ Setup Claude workspace configuration")
@@ -1794,8 +1831,8 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                 raise ValueError("Not in a git repository")
 
             # Create .env.linear file
-            env_file = git_root / '.env.linear'
-            with env_file.open('w') as f:
+            env_file = git_root / ".env.linear"
+            with env_file.open("w") as f:
                 f.write("# Linear API Key - DO NOT COMMIT TO GIT\n")
                 f.write("# This file is automatically added to .gitignore\n")
                 f.write(f"LINEAR_API_KEY={api_key}\n")
@@ -1804,7 +1841,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             env_file.chmod(0o600)
 
             # Add to .gitignore if not already present
-            self._add_to_gitignore(git_root, '.env.linear')
+            self._add_to_gitignore(git_root, ".env.linear")
 
         except (OSError, ValueError) as e:
             raise ValueError(f"Failed to store API key: {e}")
@@ -1818,12 +1855,12 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                 raise ValueError("Not in a git repository")
 
             # Ensure .cproj directory exists
-            cproj_dir = git_root / '.cproj'
+            cproj_dir = git_root / ".cproj"
             cproj_dir.mkdir(exist_ok=True)
 
             # Store reference
-            ref_file = cproj_dir / '.linear-1password-ref'
-            with ref_file.open('w') as f:
+            ref_file = cproj_dir / ".linear-1password-ref"
+            with ref_file.open("w") as f:
                 f.write(reference)
 
             # Set restrictive permissions
@@ -1853,7 +1890,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         ).strip()
         if reference:
             # Strip quotes that 1Password includes in "Copy Secret Reference"
-            reference = reference.strip('"\'')
+            reference = reference.strip("\"'")
 
             # Test the reference
             api_key = OnePasswordIntegration.get_secret(reference)
@@ -1875,7 +1912,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
 
     def _add_to_gitignore(self, repo_path: Path, pattern: str):
         """Add pattern to .gitignore if not already present"""
-        gitignore_path = repo_path / '.gitignore'
+        gitignore_path = repo_path / ".gitignore"
 
         # Check if pattern already exists
         content = ""
@@ -1886,9 +1923,9 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                     return
 
         # Add pattern to .gitignore
-        with gitignore_path.open('a') as f:
-            if gitignore_path.exists() and content and not content.endswith('\n'):
-                f.write('\n')
+        with gitignore_path.open("a") as f:
+            if gitignore_path.exists() and content and not content.endswith("\n"):
+                f.write("\n")
             f.write("# Linear API key (added by cproj)\n")
             f.write(f"{pattern}\n")
 
@@ -1901,22 +1938,22 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         config = {}
 
         # First check for .env.linear file
-        env_file = git_root / '.env.linear'
+        env_file = git_root / ".env.linear"
         if env_file.exists():
             try:
                 with env_file.open() as f:
                     for line in f:
                         line = line.strip()
-                        if line and not line.startswith('#') and '=' in line:
-                            key, value = line.split('=', 1)
+                        if line and not line.startswith("#") and "=" in line:
+                            key, value = line.split("=", 1)
                             config[key.strip()] = value.strip()
             except OSError:
                 pass
 
         # Check for 1Password reference if API key not found
-        if 'LINEAR_API_KEY' not in config:
-            cproj_dir = git_root / '.cproj'
-            onepass_ref_file = cproj_dir / '.linear-1password-ref'
+        if "LINEAR_API_KEY" not in config:
+            cproj_dir = git_root / ".cproj"
+            onepass_ref_file = cproj_dir / ".linear-1password-ref"
             if onepass_ref_file.exists():
                 try:
                     with onepass_ref_file.open() as f:
@@ -1924,8 +1961,8 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                         if reference and OnePasswordIntegration.is_available():
                             api_key = OnePasswordIntegration.get_secret(reference)
                             if api_key:
-                                config['LINEAR_API_KEY'] = api_key
-                                config['LINEAR_API_KEY_SOURCE'] = '1Password'
+                                config["LINEAR_API_KEY"] = api_key
+                                config["LINEAR_API_KEY_SOURCE"] = "1Password"
                 except (OSError, ValueError):
                     pass
 
@@ -1936,39 +1973,51 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         # Use datetime that's already imported at top level
 
         # Get configured branch scheme
-        branch_scheme = self.config.get('branch_scheme', 'feature/{ticket}-{slug}')
+        branch_scheme = self.config.get("branch_scheme", "feature/{ticket}-{slug}")
 
         suggestions = []
-        timestamp = datetime.now().strftime('%m%d')
+        timestamp = datetime.now().strftime("%m%d")
 
         # Parse the scheme to generate suggestions
-        if '{ticket}' in branch_scheme and '{slug}' in branch_scheme:
-            suggestions.extend([
-                branch_scheme.replace('{ticket}', 'TICKET-123').replace('{slug}', 'description'),
-                branch_scheme.replace('{ticket}', 'ABC-456').replace('{slug}', 'feature-name'),
-            ])
-        elif '{ticket}' in branch_scheme:
-            suggestions.extend([
-                branch_scheme.replace('{ticket}', 'TICKET-123'),
-                branch_scheme.replace('{ticket}', 'ABC-456'),
-            ])
-        elif '{slug}' in branch_scheme:
-            suggestions.extend([
-                branch_scheme.replace('{slug}', 'new-feature'),
-                branch_scheme.replace('{slug}', 'bug-fix'),
-            ])
+        if "{ticket}" in branch_scheme and "{slug}" in branch_scheme:
+            suggestions.extend(
+                [
+                    branch_scheme.replace("{ticket}", "TICKET-123").replace(
+                        "{slug}", "description"
+                    ),
+                    branch_scheme.replace("{ticket}", "ABC-456").replace("{slug}", "feature-name"),
+                ]
+            )
+        elif "{ticket}" in branch_scheme:
+            suggestions.extend(
+                [
+                    branch_scheme.replace("{ticket}", "TICKET-123"),
+                    branch_scheme.replace("{ticket}", "ABC-456"),
+                ]
+            )
+        elif "{slug}" in branch_scheme:
+            suggestions.extend(
+                [
+                    branch_scheme.replace("{slug}", "new-feature"),
+                    branch_scheme.replace("{slug}", "bug-fix"),
+                ]
+            )
         # Generic suggestions based on common patterns
-        elif branch_scheme.startswith('feature/'):
-            suggestions.extend([
-                f'feature/new-feature-{timestamp}',
-                f'feature/improvement-{timestamp}',
-            ])
+        elif branch_scheme.startswith("feature/"):
+            suggestions.extend(
+                [
+                    f"feature/new-feature-{timestamp}",
+                    f"feature/improvement-{timestamp}",
+                ]
+            )
         else:
-            suggestions.extend([
-                f'feature/new-feature-{timestamp}',
-                f'fix/bug-fix-{timestamp}',
-                f'dev/experiment-{timestamp}',
-            ])
+            suggestions.extend(
+                [
+                    f"feature/new-feature-{timestamp}",
+                    f"fix/bug-fix-{timestamp}",
+                    f"dev/experiment-{timestamp}",
+                ]
+            )
 
         return suggestions[:3]  # Limit to 3 suggestions
 
@@ -1977,23 +2026,23 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         try:
             # Try to get the default branch from origin
             result = subprocess.run(
-                ['git', 'symbolic-ref', 'refs/remotes/origin/HEAD'],
+                ["git", "symbolic-ref", "refs/remotes/origin/HEAD"],
                 cwd=repo_path,
                 capture_output=True,
                 text=True,
-                check=True
+                check=True,
             )
             # Extract branch name from refs/remotes/origin/branch_name
-            return result.stdout.strip().split('/')[-1]
+            return result.stdout.strip().split("/")[-1]
         except subprocess.CalledProcessError:
             # Fall back to common default branches
-            for branch in ['main', 'master', 'develop']:
+            for branch in ["main", "master", "develop"]:
                 try:
                     subprocess.run(
-                        ['git', 'show-ref', '--verify', f'refs/heads/{branch}'],
+                        ["git", "show-ref", "--verify", f"refs/heads/{branch}"],
                         cwd=repo_path,
                         capture_output=True,
-                        check=True
+                        check=True,
                     )
                     return branch
                 except subprocess.CalledProcessError:
@@ -2003,7 +2052,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
     def cmd_worktree_create(self, args):
         """Create worktree"""
         # Derive project context from current working directory
-        if hasattr(args, 'repo') and args.repo:
+        if hasattr(args, "repo") and args.repo:
             repo_path = Path(args.repo)
         else:
             # Find git repository root from current working directory
@@ -2021,15 +2070,25 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
 
         # Derive project settings from repository
         project_name = repo_path.name
-        base_branch = (hasattr(args, 'base') and args.base) or self._detect_default_branch(repo_path) or 'main'
-        temp_root = Path((hasattr(args, 'temp_root') and args.temp_root) or self.config.get('temp_root', tempfile.gettempdir()) or tempfile.gettempdir())
+        base_branch = (
+            (hasattr(args, "base") and args.base)
+            or self._detect_default_branch(repo_path)
+            or "main"
+        )
+        temp_root = Path(
+            (hasattr(args, "temp_root") and args.temp_root)
+            or self.config.get("temp_root", tempfile.gettempdir())
+            or tempfile.gettempdir()
+        )
 
         logger.debug(f"Using repository: {repo_path} (project: {project_name})")
 
         # Interactive prompt for branch name if not provided and in interactive mode
-        if not hasattr(args, 'branch') or not args.branch:
+        if not hasattr(args, "branch") or not args.branch:
             if not self._is_interactive():
-                raise CprojError("Branch name is required. Use --branch BRANCH_NAME or run in interactive mode.")
+                raise CprojError(
+                    "Branch name is required. Use --branch BRANCH_NAME or run in interactive mode."
+                )
 
             print("🌿 Create New Branch")
             print("-" * 50)
@@ -2068,7 +2127,11 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             print()
 
         # Interactive prompt for Linear URL if not provided and Linear is configured
-        if not (hasattr(args, 'linear') and args.linear) and self.config.get('linear_org') and self._is_interactive():
+        if (
+            not (hasattr(args, "linear") and args.linear)
+            and self.config.get("linear_org")
+            and self._is_interactive()
+        ):
             print("🔗 Linear Integration (optional)")
             print("-" * 50)
             print(f"Linear organization: {self.config.get('linear_org')}")
@@ -2079,39 +2142,50 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             print()
 
         # Interactive prompt for environment setup options if not specified and in interactive mode
-        if not any([
-            hasattr(args, 'python_install') and args.python_install,
-            hasattr(args, 'node_install') and args.node_install,
-            hasattr(args, 'java_build') and args.java_build
-        ]) and self._is_interactive():
+        if (
+            not any(
+                [
+                    hasattr(args, "python_install") and args.python_install,
+                    hasattr(args, "node_install") and args.node_install,
+                    hasattr(args, "java_build") and args.java_build,
+                ]
+            )
+            and self._is_interactive()
+        ):
             print("⚙️  Environment Setup (optional)")
             print("-" * 50)
 
             # Check what environments are available in the repo
             repo_path_obj = Path(repo_path)
-            has_python = any((repo_path_obj / f).exists() for f in ['pyproject.toml', 'requirements.txt', 'setup.py'])
-            has_node = (repo_path_obj / 'package.json').exists()
-            has_java = any((repo_path_obj / f).exists() for f in ['pom.xml', 'build.gradle', 'build.gradle.kts'])
+            has_python = any(
+                (repo_path_obj / f).exists()
+                for f in ["pyproject.toml", "requirements.txt", "setup.py"]
+            )
+            has_node = (repo_path_obj / "package.json").exists()
+            has_java = any(
+                (repo_path_obj / f).exists()
+                for f in ["pom.xml", "build.gradle", "build.gradle.kts"]
+            )
 
             if has_python:
                 python_install = input("Auto-install Python dependencies? [y/N]: ").strip().lower()
-                args.python_install = python_install in ['y', 'yes']
+                args.python_install = python_install in ["y", "yes"]
 
                 if not args.python_install:
                     shared_venv = input("Use shared venv from main repo? [y/N]: ").strip().lower()
-                    args.shared_venv = shared_venv in ['y', 'yes']
+                    args.shared_venv = shared_venv in ["y", "yes"]
 
             if has_node:
                 node_install = input("Auto-install Node dependencies? [y/N]: ").strip().lower()
-                args.node_install = node_install in ['y', 'yes']
+                args.node_install = node_install in ["y", "yes"]
 
             if has_java:
                 java_build = input("Auto-build Java project? [y/N]: ").strip().lower()
-                args.java_build = java_build in ['y', 'yes']
+                args.java_build = java_build in ["y", "yes"]
 
             # Ask about .env files
             copy_env = input("Copy .env files from main repo? [y/N]: ").strip().lower()
-            args.copy_env = copy_env in ['y', 'yes']
+            args.copy_env = copy_env in ["y", "yes"]
 
             if has_python or has_node or has_java:
                 print()
@@ -2123,20 +2197,22 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         git.ensure_base_branch(base_branch)
 
         # Create worktree path
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         worktree_name = f"{project_name}_{args.branch}_{timestamp}"
         worktree_path = temp_root / worktree_name
 
         # Create worktree
-        git.create_worktree(worktree_path, args.branch, base_branch, interactive=self._is_interactive())
+        git.create_worktree(
+            worktree_path, args.branch, base_branch, interactive=self._is_interactive()
+        )
 
         # Setup environment
         env_setup = EnvironmentSetup(worktree_path)
-        python_install = hasattr(args, 'python_install') and args.python_install
-        shared_venv = hasattr(args, 'shared_venv') and args.shared_venv
-        node_install = hasattr(args, 'node_install') and args.node_install
-        java_build = hasattr(args, 'java_build') and args.java_build
-        copy_env = hasattr(args, 'copy_env') and args.copy_env
+        python_install = hasattr(args, "python_install") and args.python_install
+        shared_venv = hasattr(args, "shared_venv") and args.shared_venv
+        node_install = hasattr(args, "node_install") and args.node_install
+        java_build = hasattr(args, "java_build") and args.java_build
+        copy_env = hasattr(args, "copy_env") and args.copy_env
 
         python_env = env_setup.setup_python(python_install, shared_venv, repo_path)
         node_env = env_setup.setup_node(node_install)
@@ -2150,12 +2226,12 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         agent_json = AgentJson(worktree_path)
         agent_json.set_project(project_name, str(repo_path))
         agent_json.set_workspace(str(worktree_path), args.branch, base_branch)
-        agent_json.set_env('python', python_env)
-        agent_json.set_env('node', node_env)
-        agent_json.set_env('java', java_env)
+        agent_json.set_env("python", python_env)
+        agent_json.set_env("node", node_env)
+        agent_json.set_env("java", java_env)
 
-        if hasattr(args, 'linear') and args.linear:
-            agent_json.set_link('linear', args.linear)
+        if hasattr(args, "linear") and args.linear:
+            agent_json.set_link("linear", args.linear)
 
         agent_json.save()
 
@@ -2172,30 +2248,34 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         print(f"Branch: {args.branch}")
 
         # Open terminal by default (unless --no-terminal is specified)
-        terminal_app = (hasattr(args, 'terminal') and args.terminal) or self.config.get('terminal', 'Terminal')
-        no_terminal = hasattr(args, 'no_terminal') and args.no_terminal
-        if not no_terminal and terminal_app != 'none':
+        terminal_app = (hasattr(args, "terminal") and args.terminal) or self.config.get(
+            "terminal", "Terminal"
+        )
+        no_terminal = hasattr(args, "no_terminal") and args.no_terminal
+        if not no_terminal and terminal_app != "none":
             # Strip branch prefix (everything before /) for cleaner window title
-            branch_display = re.sub(r'^\S+/', '', args.branch)
+            branch_display = re.sub(r"^\S+/", "", args.branch)
             TerminalAutomation.open_terminal(worktree_path, branch_display, terminal_app)
 
         # Open editor only if --open-editor is specified
-        if hasattr(args, 'open_editor') and args.open_editor:
-            editor = (hasattr(args, 'editor') and args.editor) or self.config.get('editor', 'code')
+        if hasattr(args, "open_editor") and args.open_editor:
+            editor = (hasattr(args, "editor") and args.editor) or self.config.get("editor", "code")
             if editor:
                 TerminalAutomation.open_editor(worktree_path, editor)
 
     def cmd_review_open(self, args):
         """Open review"""
         worktree_path = Path.cwd()
-        agent_json_path = worktree_path / '.cproj' / '.agent.json'
+        agent_json_path = worktree_path / ".cproj" / ".agent.json"
 
         if not agent_json_path.exists():
-            raise CprojError("Not in a cproj worktree (no .agent.json found in .cproj directory). Run from worktree root directory.")
+            raise CprojError(
+                "Not in a cproj worktree (no .agent.json found in .cproj directory). Run from worktree root directory."
+            )
 
         agent_json = AgentJson(worktree_path)
-        repo_path = Path(agent_json.data['project']['repo_path'])
-        branch = agent_json.data['workspace']['branch']
+        repo_path = Path(agent_json.data["project"]["repo_path"])
+        branch = agent_json.data["workspace"]["branch"]
 
         git = GitWorktree(repo_path)
 
@@ -2208,16 +2288,16 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             title = f"feat: {branch}"
             body = f"Branch: {branch}"
 
-            if agent_json.data['links']['linear']:
+            if agent_json.data["links"]["linear"]:
                 body += f"\n\nLinear: {agent_json.data['links']['linear']}"
 
             # Default to ready (not draft), unless explicitly set to draft
-            draft = args.draft if hasattr(args, 'draft') else False
-            assignees = args.assign.split(',') if args.assign else None
+            draft = args.draft if hasattr(args, "draft") else False
+            assignees = args.assign.split(",") if args.assign else None
 
             pr_url = GitHubIntegration.create_pr(title, body, draft, assignees)
             if pr_url:
-                agent_json.set_link('pr', pr_url)
+                agent_json.set_link("pr", pr_url)
                 agent_json.save()
                 print(f"Created PR: {pr_url}")
 
@@ -2229,7 +2309,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                 from claude_review_agents import ProjectContext, setup_review
 
                 context = ProjectContext()
-                context.ticket = agent_json.data['links'].get('linear', '')
+                context.ticket = agent_json.data["links"].get("linear", "")
                 context.pr_title = branch
 
                 result = setup_review(worktree_path, context)
@@ -2260,13 +2340,15 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
     def cmd_merge(self, args):
         """Merge and cleanup"""
         worktree_path = Path.cwd()
-        agent_json_path = worktree_path / '.cproj' / '.agent.json'
+        agent_json_path = worktree_path / ".cproj" / ".agent.json"
 
         if not agent_json_path.exists():
-            raise CprojError("Not in a cproj worktree (no .agent.json found in .cproj directory). Run from worktree root directory.")
+            raise CprojError(
+                "Not in a cproj worktree (no .agent.json found in .cproj directory). Run from worktree root directory."
+            )
 
         agent_json = AgentJson(worktree_path)
-        repo_path = Path(agent_json.data['project']['repo_path'])
+        repo_path = Path(agent_json.data["project"]["repo_path"])
 
         git = GitWorktree(repo_path)
 
@@ -2309,7 +2391,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
 
     def cmd_list(self, args):
         """List worktrees"""
-        repo_path = Path(self.config.get('repo_path', '.'))
+        repo_path = Path(self.config.get("repo_path", "."))
 
         if not repo_path.exists():
             print("No configured repository")
@@ -2323,16 +2405,16 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             return
 
         for wt in worktrees:
-            path = Path(wt['path'])
-            branch = wt.get('branch', 'N/A')
+            path = Path(wt["path"])
+            branch = wt.get("branch", "N/A")
 
             # Try to load .agent.json for additional info
-            agent_json_path = path / '.cproj' / '.agent.json'
+            agent_json_path = path / ".cproj" / ".agent.json"
             if agent_json_path.exists():
                 try:
                     agent_json = AgentJson(path)
-                    linear = agent_json.data['links']['linear']
-                    pr = agent_json.data['links']['pr']
+                    linear = agent_json.data["links"]["linear"]
+                    pr = agent_json.data["links"]["pr"]
 
                     print(f"{path} [{branch}]")
                     if linear:
@@ -2347,20 +2429,25 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
 
     def cmd_status(self, args):
         """Show status"""
-        worktree_path = Path(args.path) if hasattr(args, 'path') and args.path else Path.cwd()
+        worktree_path = Path(args.path) if hasattr(args, "path") and args.path else Path.cwd()
 
-        agent_json_path = worktree_path / '.cproj' / '.agent.json'
+        agent_json_path = worktree_path / ".cproj" / ".agent.json"
         if not agent_json_path.exists():
             # For testing and basic git status, provide basic information
             print(f"Directory: {worktree_path}")
 
             # Try to get git status if we're in a git repository
             try:
-                result = subprocess.run(['git', 'status', '--porcelain'],
-                                      cwd=worktree_path, capture_output=True, text=True, check=True)
+                result = subprocess.run(
+                    ["git", "status", "--porcelain"],
+                    cwd=worktree_path,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
                 if result.stdout.strip():
                     print("Git Status:")
-                    for line in result.stdout.strip().split('\n'):
+                    for line in result.stdout.strip().split("\n"):
                         print(f"  {line}")
                 else:
                     print("Git Status: Clean working directory")
@@ -2370,7 +2457,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
 
         agent_json = AgentJson(worktree_path)
 
-        if hasattr(args, 'json') and args.json:
+        if hasattr(args, "json") and args.json:
             print(json.dumps(agent_json.data, indent=2))
             return
 
@@ -2380,14 +2467,14 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         print(f"Base: {agent_json.data['workspace']['base']}")
         print(f"Created: {agent_json.data['workspace']['created_at']}")
 
-        if agent_json.data['links']['linear']:
+        if agent_json.data["links"]["linear"]:
             print(f"Linear: {agent_json.data['links']['linear']}")
-        if agent_json.data['links']['pr']:
+        if agent_json.data["links"]["pr"]:
             print(f"PR: {agent_json.data['links']['pr']}")
 
     def cmd_cleanup(self, args):
         """Cleanup worktrees"""
-        repo_path = Path(self.config.get('repo_path', '.'))
+        repo_path = Path(self.config.get("repo_path", "."))
 
         if not repo_path.exists():
             print("No configured repository")
@@ -2397,29 +2484,32 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         worktrees = git.list_worktrees()
 
         # Interactive prompt for cleanup criteria if not specified and in interactive mode
-        if not any([args.older_than, getattr(args, 'newer_than', None), args.merged_only]) and self._is_interactive():
+        if (
+            not any([args.older_than, getattr(args, "newer_than", None), args.merged_only])
+            and self._is_interactive()
+        ):
             print("🧹 Cleanup Worktrees")
             print("-" * 50)
 
             # Show current worktrees with ages
-            active_worktrees = [wt for wt in worktrees if Path(wt['path']) != repo_path]
+            active_worktrees = [wt for wt in worktrees if Path(wt["path"]) != repo_path]
             if not active_worktrees:
                 print("No worktrees to clean up.")
                 return
 
             print(f"Found {len(active_worktrees)} active worktree(s):")
             for wt in active_worktrees:
-                path = Path(wt['path'])
-                branch = wt.get('branch', 'N/A')
+                path = Path(wt["path"])
+                branch = wt.get("branch", "N/A")
 
                 # Try to get age
                 age_info = ""
-                agent_json_path = path / '.cproj' / '.agent.json'
+                agent_json_path = path / ".cproj" / ".agent.json"
                 if agent_json_path.exists():
                     try:
                         agent_json = AgentJson(path)
                         created_at = datetime.fromisoformat(
-                            agent_json.data['workspace']['created_at'].replace('Z', '+00:00')
+                            agent_json.data["workspace"]["created_at"].replace("Z", "+00:00")
                         )
                         age_days = (datetime.now(timezone.utc) - created_at).days
                         age_info = f" ({age_days} days old)"
@@ -2442,7 +2532,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             while True:
                 choice = input("Select cleanup method [1-5]: ").strip()
 
-                if choice == '1':
+                if choice == "1":
                     # Interactive selection mode (moved to option 1)
                     current_worktree = Path.cwd()
                     selected_for_removal = []
@@ -2452,17 +2542,19 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                     print()
 
                     for _i, wt in enumerate(active_worktrees):
-                        path = Path(wt['path'])
-                        branch = wt.get('branch', 'N/A')
+                        path = Path(wt["path"])
+                        branch = wt.get("branch", "N/A")
 
                         # Get age info
                         age_info = ""
-                        agent_json_path = path / '.cproj' / '.agent.json'
+                        agent_json_path = path / ".cproj" / ".agent.json"
                         if agent_json_path.exists():
                             try:
                                 agent_json = AgentJson(path)
                                 created_at = datetime.fromisoformat(
-                                    agent_json.data['workspace']['created_at'].replace('Z', '+00:00')
+                                    agent_json.data["workspace"]["created_at"].replace(
+                                        "Z", "+00:00"
+                                    )
                                 )
                                 age_days = (datetime.now(timezone.utc) - created_at).days
                                 age_info = f" ({age_days} days old)"
@@ -2471,14 +2563,22 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                                 pass
 
                         # Check if this is the current worktree
-                        is_current = current_worktree == path or current_worktree.resolve() == path.resolve()
+                        is_current = (
+                            current_worktree == path or current_worktree.resolve() == path.resolve()
+                        )
                         status_info = " [CURRENT]" if is_current else ""
 
                         while True:
-                            response = input(f"Remove {path.name} [{branch}]{age_info}{status_info}? [y/N]: ").strip().lower()
-                            if response in ['', 'n', 'no']:
+                            response = (
+                                input(
+                                    f"Remove {path.name} [{branch}]{age_info}{status_info}? [y/N]: "
+                                )
+                                .strip()
+                                .lower()
+                            )
+                            if response in ["", "n", "no"]:
                                 break
-                            elif response in ['y', 'yes']:
+                            elif response in ["y", "yes"]:
                                 if not is_current:  # Don't allow removing current worktree
                                     selected_for_removal.append(wt)
                                 else:
@@ -2493,25 +2593,37 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                             print(f"  - {Path(wt['path']).name} [{wt.get('branch', 'N/A')}]")
 
                         confirm = input("\nConfirm removal? [y/N]: ").strip().lower()
-                        if confirm in ['y', 'yes']:
+                        if confirm in ["y", "yes"]:
                             for wt in selected_for_removal:
                                 try:
-                                    git.remove_worktree(Path(wt['path']), force=args.force)
+                                    git.remove_worktree(Path(wt["path"]), force=args.force)
                                     print(f"✅ Removed {Path(wt['path']).name}")
                                 except Exception as e:
                                     error_msg = str(e)
                                     if "is dirty" in error_msg and not args.force:
-                                        print(f"❌ Failed to remove {Path(wt['path']).name}: Worktree is dirty (has uncommitted changes)")
+                                        print(
+                                            f"❌ Failed to remove {Path(wt['path']).name}: Worktree is dirty (has uncommitted changes)"
+                                        )
                                         if self._is_interactive():
-                                            force_choice = input(
-                                                f"Force removal of dirty worktree {Path(wt['path']).name}? [y/N]: "
-                                            ).strip().lower()
-                                            if force_choice in ['y', 'yes']:
+                                            force_choice = (
+                                                input(
+                                                    f"Force removal of dirty worktree {Path(wt['path']).name}? [y/N]: "
+                                                )
+                                                .strip()
+                                                .lower()
+                                            )
+                                            if force_choice in ["y", "yes"]:
                                                 try:
-                                                    git.remove_worktree(Path(wt['path']), force=True)
-                                                    print(f"✅ Force removed {Path(wt['path']).name}")
+                                                    git.remove_worktree(
+                                                        Path(wt["path"]), force=True
+                                                    )
+                                                    print(
+                                                        f"✅ Force removed {Path(wt['path']).name}"
+                                                    )
                                                 except Exception as force_e:
-                                                    print(f"❌ Failed to force remove {Path(wt['path']).name}: {force_e}")
+                                                    print(
+                                                        f"❌ Failed to force remove {Path(wt['path']).name}: {force_e}"
+                                                    )
                                             else:
                                                 print(f"⏭️  Skipped {Path(wt['path']).name}")
                                         else:
@@ -2524,10 +2636,12 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                         print("No worktrees selected for removal")
                     return
 
-                elif choice == '2':
+                elif choice == "2":
                     # New option: Remove worktrees newer than X days
                     default_days = 7
-                    days_input = input(f"Remove worktrees newer than how many days? [{default_days}]: ").strip()
+                    days_input = input(
+                        f"Remove worktrees newer than how many days? [{default_days}]: "
+                    ).strip()
                     try:
                         newer_days = int(days_input) if days_input else default_days
                         args.newer_than = newer_days
@@ -2537,9 +2651,11 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                         print("❌ Please enter a valid number")
                         continue
 
-                elif choice == '3':
-                    default_days = self.config.get('cleanup_days', 14)
-                    days_input = input(f"Remove worktrees older than how many days? [{default_days}]: ").strip()
+                elif choice == "3":
+                    default_days = self.config.get("cleanup_days", 14)
+                    days_input = input(
+                        f"Remove worktrees older than how many days? [{default_days}]: "
+                    ).strip()
                     try:
                         args.older_than = int(days_input) if days_input else default_days
                         break
@@ -2547,11 +2663,11 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                         print("❌ Please enter a valid number")
                         continue
 
-                elif choice == '4':
+                elif choice == "4":
                     args.merged_only = True
                     break
 
-                elif choice == '5':
+                elif choice == "5":
                     print("Cleanup cancelled")
                     return
 
@@ -2561,11 +2677,13 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
 
             print()
 
-        logger.debug(f"Processing cleanup with filters - older_than: {args.older_than}, newer_than: {getattr(args, 'newer_than', None)}, merged_only: {args.merged_only}")
+        logger.debug(
+            f"Processing cleanup with filters - older_than: {args.older_than}, newer_than: {getattr(args, 'newer_than', None)}, merged_only: {args.merged_only}"
+        )
 
         to_remove = []
         for wt in worktrees:
-            path = Path(wt['path'])
+            path = Path(wt["path"])
             if path == repo_path:  # Skip main worktree
                 continue
 
@@ -2574,12 +2692,12 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
 
             # Check age
             if args.older_than:
-                agent_json_path = path / '.cproj' / '.agent.json'
+                agent_json_path = path / ".cproj" / ".agent.json"
                 if agent_json_path.exists():
                     try:
                         agent_json = AgentJson(path)
                         created_at = datetime.fromisoformat(
-                            agent_json.data['workspace']['created_at'].replace('Z', '+00:00')
+                            agent_json.data["workspace"]["created_at"].replace("Z", "+00:00")
                         )
                         age_days = (datetime.now(timezone.utc) - created_at).days
                         if age_days > args.older_than:
@@ -2589,20 +2707,24 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                         pass
 
             # Check for newer than (opposite logic)
-            if hasattr(args, 'newer_than') and args.newer_than:
+            if hasattr(args, "newer_than") and args.newer_than:
                 logger.debug(f"Checking newer_than condition for {path.name}")
-                agent_json_path = path / '.cproj' / '.agent.json'
+                agent_json_path = path / ".cproj" / ".agent.json"
                 if agent_json_path.exists():
                     try:
                         agent_json = AgentJson(path)
                         created_at = datetime.fromisoformat(
-                            agent_json.data['workspace']['created_at'].replace('Z', '+00:00')
+                            agent_json.data["workspace"]["created_at"].replace("Z", "+00:00")
                         )
                         age_days = (datetime.now(timezone.utc) - created_at).days
-                        logger.debug(f"{path.name} is {age_days} days old, newer_than={args.newer_than}")
+                        logger.debug(
+                            f"{path.name} is {age_days} days old, newer_than={args.newer_than}"
+                        )
                         if age_days <= args.newer_than:
                             should_remove = True
-                            logger.debug(f"Marking {path.name} for removal (newer than {args.newer_than} days)")
+                            logger.debug(
+                                f"Marking {path.name} for removal (newer than {args.newer_than} days)"
+                            )
                     except Exception as e:
                         logger.debug(f"Error processing {path.name}: {e}")
                         pass
@@ -2611,7 +2733,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             if args.merged_only and agent_json_path.exists():
                 try:
                     agent_data = json.loads(agent_json_path.read_text())
-                    if 'closed_at' in agent_data.get('workspace', {}):
+                    if "closed_at" in agent_data.get("workspace", {}):
                         should_remove = True
                         logger.debug(f"Marking {path.name} for removal (marked as closed)")
                 except (json.JSONDecodeError, KeyError) as e:
@@ -2629,21 +2751,27 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             return
 
         for wt in to_remove:
-            path = Path(wt['path'])
+            path = Path(wt["path"])
             print(f"Would remove: {path}")
 
             if not args.dry_run:
-                if args.yes or input(f"Remove {path}? [y/N] ").lower() == 'y':
+                if args.yes or input(f"Remove {path}? [y/N] ").lower() == "y":
                     try:
                         git.remove_worktree(path, force=args.force)
                         print(f"Removed: {path}")
                     except Exception as e:
                         error_msg = str(e)
                         if "is dirty" in error_msg and not args.force:
-                            print(f"❌ Failed to remove {path.name}: Worktree is dirty (has uncommitted changes)")
+                            print(
+                                f"❌ Failed to remove {path.name}: Worktree is dirty (has uncommitted changes)"
+                            )
                             if self._is_interactive():
-                                force_choice = input(f"Force removal of dirty worktree {path.name}? [y/N]: ").strip().lower()
-                                if force_choice in ['y', 'yes']:
+                                force_choice = (
+                                    input(f"Force removal of dirty worktree {path.name}? [y/N]: ")
+                                    .strip()
+                                    .lower()
+                                )
+                                if force_choice in ["y", "yes"]:
                                     try:
                                         git.remove_worktree(path, force=True)
                                         print(f"✅ Force removed {path.name}")
@@ -2660,35 +2788,39 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         """Open workspace"""
         if args.path:
             # Check if user might be trying to use 'open review' instead of 'review open'
-            if args.path == 'review':
-                raise CprojError("Did you mean 'cproj review open'? The correct syntax is: cproj review open")
+            if args.path == "review":
+                raise CprojError(
+                    "Did you mean 'cproj review open'? The correct syntax is: cproj review open"
+                )
             worktree_path = Path(args.path)
             if not worktree_path.exists():
                 raise CprojError(f"Path does not exist: {args.path}")
         else:
             worktree_path = Path.cwd()
 
-        agent_json_path = worktree_path / '.cproj' / '.agent.json'
+        agent_json_path = worktree_path / ".cproj" / ".agent.json"
         if not agent_json_path.exists():
             # Check if we're in a subdirectory of a worktree
             parent = worktree_path.parent
             while parent != parent.parent:
-                if (parent / '.cproj' / '.agent.json').exists():
-                    raise CprojError(f"Found .agent.json in parent directory: {parent}/.cproj\nRun command from worktree root or specify path with 'cproj open {parent}'")
+                if (parent / ".cproj" / ".agent.json").exists():
+                    raise CprojError(
+                        f"Found .agent.json in parent directory: {parent}/.cproj\nRun command from worktree root or specify path with 'cproj open {parent}'"
+                    )
                 parent = parent.parent
             raise CprojError("Not in a cproj worktree (no .agent.json found in .cproj directory)")
 
         agent_json = AgentJson(worktree_path)
-        agent_json.data['project']['name']
-        branch = agent_json.data['workspace']['branch']
+        agent_json.data["project"]["name"]
+        branch = agent_json.data["workspace"]["branch"]
 
-        terminal_app = args.terminal or self.config.get('terminal', 'Terminal')
-        editor = args.editor or self.config.get('editor', 'code')
+        terminal_app = args.terminal or self.config.get("terminal", "Terminal")
+        editor = args.editor or self.config.get("editor", "code")
 
         # Open terminal
-        if terminal_app != 'none':
+        if terminal_app != "none":
             # Strip branch prefix (everything before /) for cleaner window title
-            branch_display = re.sub(r'^\S+/', '', branch)
+            branch_display = re.sub(r"^\S+/", "", branch)
             TerminalAutomation.open_terminal(worktree_path, branch_display, terminal_app)
 
         # Open editor
@@ -2696,11 +2828,11 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             TerminalAutomation.open_editor(worktree_path, editor)
 
         # Open browser links safely
-        links = agent_json.data['links']
-        if links['linear']:
-            self._safe_open_url(links['linear'])
-        if links['pr']:
-            self._safe_open_url(links['pr'])
+        links = agent_json.data["links"]
+        if links["linear"]:
+            self._safe_open_url(links["linear"])
+        if links["pr"]:
+            self._safe_open_url(links["pr"])
 
     def _safe_open_url(self, url: str):
         """Safely open a URL, validating it first to prevent command injection"""
@@ -2710,14 +2842,14 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
 
         try:
             # Check for shell metacharacters that could be used for injection
-            dangerous_chars = [';', '&', '|', '`', '$', "'", '"', '\\', '\n', '\r']
+            dangerous_chars = [";", "&", "|", "`", "$", "'", '"', "\\", "\n", "\r"]
             if any(char in url for char in dangerous_chars):
                 logger.warning(f"Refusing to open URL with dangerous characters: {url}")
                 return
 
             parsed = urllib.parse.urlparse(url)
-            if parsed.scheme in ('http', 'https') and parsed.netloc:
-                subprocess.run(['open', url], check=False)
+            if parsed.scheme in ("http", "https") and parsed.netloc:
+                subprocess.run(["open", url], check=False)
             else:
                 logger.warning(f"Refusing to open potentially unsafe URL: {url}")
         except Exception as e:
@@ -2725,14 +2857,14 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
 
     def cmd_config(self, args):
         """Configuration management"""
-        if not hasattr(args, 'key') or not args.key:
+        if not hasattr(args, "key") or not args.key:
             # Show all config
-            if hasattr(args, 'json') and args.json:
+            if hasattr(args, "json") and args.json:
                 print(json.dumps(self.config._config, indent=2))
             else:
                 for key, value in self.config._config.items():
                     print(f"{key}: {value}")
-        elif not hasattr(args, 'value') or not args.value:
+        elif not hasattr(args, "value") or not args.value:
             # Show specific key
             value = self.config.get(args.key)
             if value is not None:
@@ -2744,11 +2876,11 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
 
     def cmd_linear(self, args):
         """Linear integration management"""
-        if args.linear_command == 'setup':
+        if args.linear_command == "setup":
             self.cmd_linear_setup(args)
-        elif args.linear_command == 'test':
+        elif args.linear_command == "test":
             self.cmd_linear_test(args)
-        elif args.linear_command == 'status':
+        elif args.linear_command == "status":
             self.cmd_linear_status(args)
         else:
             print("Available subcommands: setup, test, status")
@@ -2768,42 +2900,47 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             print()
 
             # Prompt for organization
-            current_org = self.config.get('linear_org', '')
-            org_prompt = f"Linear organization [{current_org}]: " if current_org else "Linear organization: "
+            current_org = self.config.get("linear_org", "")
+            org_prompt = (
+                f"Linear organization [{current_org}]: " if current_org else "Linear organization: "
+            )
             org = input(org_prompt).strip()
             if org:
-                self.config.set('linear_org', org)
+                self.config.set("linear_org", org)
                 print(f"✅ Set organization: {org}")
             elif current_org:
                 print(f"✅ Using existing organization: {current_org}")
 
             # Prompt for team
-            current_team = self.config.get('linear_default_team', '')
-            team_prompt = f"Default team [{current_team}]: " if current_team else "Default team (optional): "
+            current_team = self.config.get("linear_default_team", "")
+            team_prompt = (
+                f"Default team [{current_team}]: " if current_team else "Default team (optional): "
+            )
             team = input(team_prompt).strip()
             if team:
-                self.config.set('linear_default_team', team)
+                self.config.set("linear_default_team", team)
                 print(f"✅ Set default team: {team}")
             elif current_team:
                 print(f"✅ Using existing team: {current_team}")
 
             # Prompt for project
-            current_project = self.config.get('linear_default_project', '')
+            current_project = self.config.get("linear_default_project", "")
             project_prompt = (
-                f"Default project [{current_project}]: " if current_project
+                f"Default project [{current_project}]: "
+                if current_project
                 else "Default project (optional): "
             )
             project = input(project_prompt).strip()
             if project:
-                self.config.set('linear_default_project', project)
+                self.config.set("linear_default_project", project)
                 print(f"✅ Set default project: {project}")
             elif current_project:
                 print(f"✅ Using existing project: {current_project}")
 
             # Check if API key is already configured
             linear_config = self._load_linear_config()
-            if linear_config.get('LINEAR_API_KEY'):
-                source = linear_config.get('LINEAR_API_KEY_SOURCE', 'File')
+            if linear_config.get("LINEAR_API_KEY"):
+                source = linear_config.get("LINEAR_API_KEY_SOURCE", "File")
                 print(f"✅ API key already configured (source: {source})")
             else:
                 # Prompt for API key configuration
@@ -2832,17 +2969,17 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             # Handle command-line arguments
             # Update organization URL
             if args.org:
-                self.config.set('linear_org', args.org)
+                self.config.set("linear_org", args.org)
                 print(f"✅ Set organization: {args.org}")
 
             # Update default team
             if args.team:
-                self.config.set('linear_default_team', args.team)
+                self.config.set("linear_default_team", args.team)
                 print(f"✅ Set default team: {args.team}")
 
             # Update default project
             if args.project:
-                self.config.set('linear_default_project', args.project)
+                self.config.set("linear_default_project", args.project)
                 print(f"✅ Set default project: {args.project}")
 
         # Update API key (command-line args)
@@ -2871,7 +3008,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             ).strip()
             if reference:
                 # Strip quotes that 1Password includes in "Copy Secret Reference"
-                reference = reference.strip('"\'')
+                reference = reference.strip("\"'")
 
                 # Test the reference
                 api_key = OnePasswordIntegration.get_secret(reference)
@@ -2899,17 +3036,19 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
 
         # Check configuration
         linear_config = self._load_linear_config()
-        if not linear_config.get('LINEAR_API_KEY'):
+        if not linear_config.get("LINEAR_API_KEY"):
             print("❌ No API key found. Run: cproj linear setup --api-key YOUR_KEY")
             return
 
-        org = self.config.get('linear_org')
-        team = self.config.get('linear_default_team')
+        org = self.config.get("linear_org")
+        team = self.config.get("linear_default_team")
 
         print(f"Organization: {org or 'Not configured'}")
         print(f"Default Team: {team or 'Not configured'}")
         print(f"API Key: {'✅ Found' if linear_config.get('LINEAR_API_KEY') else '❌ Missing'}")
-        print(f"MCP Config: {'✅ Available' if (Path.cwd() / '.claude' / 'mcp_config.json').exists() else '❌ Missing'}")
+        print(
+            f"MCP Config: {'✅ Available' if (Path.cwd() / '.claude' / 'mcp_config.json').exists() else '❌ Missing'}"
+        )
 
         # TODO: Add actual API test when Linear MCP is available
         print("\n💡 Basic configuration looks good!")
@@ -2931,10 +3070,12 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
 
         # Show secure config
         print("\n🔐 Secure Configuration:")
-        print(f"  API Key: {'✅ Configured' if linear_config.get('LINEAR_API_KEY') else '❌ Not configured'}")
-        if linear_config.get('LINEAR_API_KEY'):
-            key = linear_config['LINEAR_API_KEY']
-            source = linear_config.get('LINEAR_API_KEY_SOURCE', 'File')
+        print(
+            f"  API Key: {'✅ Configured' if linear_config.get('LINEAR_API_KEY') else '❌ Not configured'}"
+        )
+        if linear_config.get("LINEAR_API_KEY"):
+            key = linear_config["LINEAR_API_KEY"]
+            source = linear_config.get("LINEAR_API_KEY_SOURCE", "File")
             print(f"  Key Source: {source}")
             min_key_length = 12
             print(f"  Key Preview: {key[:8]}...{key[-4:] if len(key) > min_key_length else ''}")
@@ -2942,8 +3083,8 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         # Show file status
         git_root = self._find_git_root(Path.cwd())
         if git_root:
-            env_file = git_root / '.env.linear'
-            gitignore_file = git_root / '.gitignore'
+            env_file = git_root / ".env.linear"
+            gitignore_file = git_root / ".gitignore"
 
             print("\n📁 File Status:")
             print(f"  .env.linear: {'✅ Exists' if env_file.exists() else '❌ Missing'}")
@@ -2953,7 +3094,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             if gitignore_file.exists():
                 with gitignore_file.open() as f:
                     content = f.read()
-                    is_ignored = '.env.linear' in content
+                    is_ignored = ".env.linear" in content
                     print(
                         f"  .gitignore entry: {'✅ Protected' if is_ignored else '⚠️  Not protected'}"
                     )
@@ -2961,11 +3102,11 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                 print("  .gitignore: ❌ Missing")
 
         # Show workspace status
-        claude_dir = Path.cwd() / '.claude'
+        claude_dir = Path.cwd() / ".claude"
         print("\n🤖 Workspace Status:")
-        commands_available = '✅ Yes' if (claude_dir / 'commands').exists() else '❌ No'
-        agents_available = '✅ Yes' if (claude_dir / 'agents').exists() else '❌ No'
-        mcp_config_available = '✅ Yes' if (claude_dir / 'mcp_config.json').exists() else '❌ No'
+        commands_available = "✅ Yes" if (claude_dir / "commands").exists() else "❌ No"
+        agents_available = "✅ Yes" if (claude_dir / "agents").exists() else "❌ No"
+        mcp_config_available = "✅ Yes" if (claude_dir / "mcp_config.json").exists() else "❌ No"
 
         print(f"  Commands available: {commands_available}")
         print(f"  Agents available: {agents_available}")
@@ -2987,5 +3128,5 @@ def main():
     cli.run()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
