@@ -14,7 +14,7 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 import tempfile
 import getpass
 import urllib.parse
@@ -71,8 +71,9 @@ class OnePasswordIntegration:
         """Sanitize arguments for 1Password CLI to prevent injection"""
         if not isinstance(arg, str):
             arg = str(arg)
-        # Remove shell metacharacters and only allow safe characters
-        return ''.join(c for c in arg if c.isalnum() or c in '-_. ')
+        # Remove shell metacharacters and path traversal patterns
+        # Only allow alphanumeric, hyphens, underscores, dots, and spaces
+        return ''.join(c for c in arg if c.isalnum() or c in '-_. ').replace('..', '')
 
     @staticmethod
     def store_secret(title: str, value: str, vault: str = None) -> Optional[str]:
@@ -447,7 +448,15 @@ class AgentJson:
     def set_env(self, env_type: str, env_data: Dict):
         if env_type in self.data['env']:
             self.data['env'][env_type].update(env_data)
-    
+
+    def set(self, key: str, value: Any):
+        """Set a value in the data"""
+        self.data[key] = value
+
+    def get(self, key: str, default=None):
+        """Get a value from the data"""
+        return self.data.get(key, default)
+
     def close_workspace(self):
         self.data['workspace']['closed_at'] = datetime.now(timezone.utc).isoformat()
     
@@ -461,6 +470,67 @@ class EnvironmentSetup:
     
     def __init__(self, worktree_path: Path):
         self.worktree_path = worktree_path
+
+    # Detection methods
+    def _has_pyproject_toml(self) -> bool:
+        """Check if pyproject.toml exists"""
+        return (self.worktree_path / 'pyproject.toml').exists()
+
+    def _has_requirements_txt(self) -> bool:
+        """Check if requirements.txt exists"""
+        return (self.worktree_path / 'requirements.txt').exists()
+
+    def _has_setup_py(self) -> bool:
+        """Check if setup.py exists"""
+        return (self.worktree_path / 'setup.py').exists()
+
+    def _has_package_json(self) -> bool:
+        """Check if package.json exists"""
+        return (self.worktree_path / 'package.json').exists()
+
+    def _has_yarn_lock(self) -> bool:
+        """Check if yarn.lock exists"""
+        return (self.worktree_path / 'yarn.lock').exists()
+
+    def _has_package_lock(self) -> bool:
+        """Check if package-lock.json exists"""
+        return (self.worktree_path / 'package-lock.json').exists()
+
+    def _has_maven(self) -> bool:
+        """Check if Maven pom.xml exists"""
+        return (self.worktree_path / 'pom.xml').exists()
+
+    def _has_gradle(self) -> bool:
+        """Check if Gradle build files exist"""
+        return (self.worktree_path / 'build.gradle').exists() or (self.worktree_path / 'build.gradle.kts').exists()
+
+    def _has_uv(self) -> bool:
+        """Check if uv is available"""
+        try:
+            subprocess.run(['uv', '--version'], capture_output=True, check=True)
+            return True
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            return False
+
+    def detect_environments(self) -> Dict[str, Any]:
+        """Detect available environments"""
+        return {
+            'python': {
+                'pyproject': self._has_pyproject_toml(),
+                'requirements': self._has_requirements_txt(),
+                'setup_py': self._has_setup_py(),
+                'uv_available': self._has_uv()
+            },
+            'node': {
+                'package_json': self._has_package_json(),
+                'yarn_lock': self._has_yarn_lock(),
+                'package_lock': self._has_package_lock()
+            },
+            'java': {
+                'maven': self._has_maven(),
+                'gradle': self._has_gradle()
+            }
+        }
 
     def _find_python_files(self):
         """Find Python project files in the worktree"""
@@ -625,7 +695,7 @@ class EnvironmentSetup:
         
         return env_data
     
-    def setup_java(self, auto_build: bool = False) -> Dict:
+    def setup_java(self, auto_install: bool = False, auto_build: bool = False) -> Dict:
         """Setup Java environment"""
         env_data = {"build": "none"}
         

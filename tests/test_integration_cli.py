@@ -9,6 +9,7 @@ import pytest
 import os
 import json
 import sys
+import shutil
 from pathlib import Path
 from unittest.mock import patch
 

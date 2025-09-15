@@ -113,8 +113,7 @@ detached"""
         # Should parse the output correctly
         assert isinstance(worktrees, list)
         mock_run.assert_called_with(
-            ['git', 'worktree', 'list', '--porcelain'],
-            cwd=temp_repo,
+            ['git', '-C', str(temp_repo), 'worktree', 'list', '--porcelain'],
             capture_output=True,
             text=True,
             check=True
@@ -379,15 +378,24 @@ index 1234567..abcdefg 100644
         ]
 
         for dangerous_path in dangerous_paths:
-            path_obj = Path(base_dir) / dangerous_path
+            if dangerous_path.startswith('/'):
+                # Absolute paths
+                path_obj = Path(dangerous_path)
+            elif dangerous_path.startswith('~'):
+                # Home directory expansion
+                path_obj = Path(dangerous_path).expanduser()
+            else:
+                # Relative paths that could traverse up
+                path_obj = Path(base_dir) / dangerous_path
+
             try:
                 relative = path_obj.resolve().relative_to(base_dir.resolve())
                 is_safe = True
             except ValueError:
                 is_safe = False
 
-            # Should not be safe for most of these
-            if dangerous_path.startswith('/') or dangerous_path.startswith('~'):
+            # Should not be safe for absolute or home paths, and traversal paths
+            if dangerous_path.startswith(('/')) or dangerous_path.startswith('~') or '../' in dangerous_path:
                 assert not is_safe, f"Dangerous path should not be safe: {dangerous_path}"
 
 
