@@ -84,7 +84,7 @@ include = [
 ]
 
 [tool.black]
-line-length = 100
+line-length = 120
 target-version = ['py38', 'py39', 'py310', 'py311', 'py312']
 
 # Legacy mypy config replaced with comprehensive config below
@@ -135,7 +135,7 @@ filterwarnings = [
 # Ruff configuration for fast linting and formatting
 [tool.ruff]
 target-version = "py38"
-line-length = 100
+line-length = 120
 
 [tool.ruff.lint]
 select = [
