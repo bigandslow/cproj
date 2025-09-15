@@ -1,9 +1,9 @@
 {
-  "timestamp": "2025-09-06T18:16:40.060323",
-  "worktree": "/Users/cstrahorn/Documents/GitHub/cproj",
+  "timestamp": "2025-09-14T09:12:42.592305",
+  "worktree": "/Users/cstrahorn/.cache/cproj-workspaces/cproj_fix/self-review_20250914_081642",
   "context": {
-    "pr_title": "Main",
-    "pr_desc": "Recent commits:\n4b356cb Address critical security vulnerabilities and code review feedback\nbeb2b78 Add professional AI-powered PR review agent system\ndc13f75 Simplify terminal window titles by removing branch prefixes\n9e98f78 Improve error messages for incorrect command syntax and missing .agent.json\nbd26b9a Fix .env file copying to search subdirectories\n1e1d997 Add shared venv and .env file support to cproj worktrees\n985ff85 Fix install script to work from any directory\nb757bdb Change default cproj behavior to open terminal but not IDE\n70ad4fe Improve interactive cleanup debugging and user feedback\n362cbce Implement interactive cleanup selection with current worktree protection",
+    "pr_title": "fixself-review",
+    "pr_desc": "Recent commits:\na09a0e6 Fix critical security vulnerabilities and add comprehensive test suite\n7196ed9 Add proper logging system with configurable log levels\n5624430 Add --force flag and fix newer than cleanup logic\n5baff08 Organize worktree files in .cproj directory and improve cleanup menu\n94d7b53 Fix nvm detection for Claude CLI and add review-code command\n87139d2 Add comprehensive Linear integration with multi-agent ticket creation workflow\n7295555 Add Claude IDE and nvm automation features\n3eafda1 Fix remaining test failures in cproj test suite\nf90afa9 Fix remaining security issues from agent re-review\n4b356cb Address critical security vulnerabilities and code review feedback",
     "ticket": "",
     "arch_notes": "Python/TypeScript monorepo, REST APIs, PostgreSQL, Docker, AWS",
     "conventions": "PEP8 for Python, ESLint/Prettier for JS/TS, conventional commits",

@@ -455,6 +455,19 @@ class EnvironmentSetup:
     
     def __init__(self, worktree_path: Path):
         self.worktree_path = worktree_path
+
+    def _find_python_files(self):
+        """Find Python project files in the worktree"""
+        # Check for project files in root and common subdirectories
+        pyproject_paths = list(self.worktree_path.glob('**/pyproject.toml'))
+        requirements_paths = list(self.worktree_path.glob('**/requirements.txt'))
+
+        # Filter out common non-project directories
+        exclude_dirs = {'.venv', 'venv', 'node_modules', '.git', '__pycache__', 'dist', 'build'}
+        pyproject_paths = [p for p in pyproject_paths if not any(ex in p.parts for ex in exclude_dirs)]
+        requirements_paths = [p for p in requirements_paths if not any(ex in p.parts for ex in exclude_dirs)]
+
+        return pyproject_paths, requirements_paths
     
     def setup_python(self, auto_install: bool = False, shared_venv: bool = False, repo_path: Path = None) -> Dict:
         """Setup Python environment with uv or venv"""
@@ -465,14 +478,8 @@ class EnvironmentSetup:
             "requirements": False
         }
         
-        # Check for project files in root and common subdirectories
-        pyproject_paths = list(self.worktree_path.glob('**/pyproject.toml'))
-        requirements_paths = list(self.worktree_path.glob('**/requirements.txt'))
-        
-        # Filter out common non-project directories
-        exclude_dirs = {'.venv', 'venv', 'node_modules', '.git', '__pycache__', 'dist', 'build'}
-        pyproject_paths = [p for p in pyproject_paths if not any(ex in p.parts for ex in exclude_dirs)]
-        requirements_paths = [p for p in requirements_paths if not any(ex in p.parts for ex in exclude_dirs)]
+        # Find Python project files
+        pyproject_paths, requirements_paths = self._find_python_files()
         
         pyproject_exists = len(pyproject_paths) > 0
         requirements_exists = len(requirements_paths) > 0
@@ -1070,9 +1077,9 @@ class CprojCLI:
         open_parser.add_argument('--no-push', action='store_true', help='Don\'t push branch')
         open_parser.add_argument('--no-agents', action='store_true', help='Skip automated review agents')
         
-        agents_parser = review_sub.add_parser('agents', help='Run automated review agents')
-        agents_parser.add_argument('--setup', action='store_true', help='Setup review configuration only')
-        agents_parser.add_argument('--json', action='store_true', help='Output as JSON')
+        # Legacy 'cproj review agents' removed in favor of 'review-code' command
+        # Migration: Use 'review-code' for AI-powered code reviews with enhanced security
+        # The new system provides better input validation and safer execution
         
         # merge command
         merge_parser = subparsers.add_parser('merge', help='Merge and cleanup')
@@ -1145,8 +1152,6 @@ class CprojCLI:
             elif parsed_args.command == 'review':
                 if parsed_args.review_command == 'open':
                     self.cmd_review_open(parsed_args)
-                elif parsed_args.review_command == 'agents':
-                    self.cmd_review_agents(parsed_args)
                 else:
                     # Show review help when no subcommand given
                     parser.parse_args(['review', '--help'])
@@ -1879,82 +1884,19 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         
         print(f"\n🎉 Branch {branch} ready for review")
     
-    def cmd_review_agents(self, args):
-        """Run automated review agents with security validation"""
-        try:
-            from claude_review_agents import setup_review, ClaudeReviewOrchestrator, ProjectContext
-        except ImportError as e:
-            raise CprojError(f"Review agents module not available: {e}")
-        
-        worktree_path = Path.cwd()
-        agent_json_path = worktree_path / '.cproj' / '.agent.json'
-        
-        if not agent_json_path.exists():
-            raise CprojError("Not in a cproj worktree (no .agent.json found in .cproj directory). Run from worktree root directory.")
-        
-        try:
-            # Load agent data for context
-            agent_json = AgentJson(worktree_path)
-            
-            # Create project context with safe values
-            context = ProjectContext()
-            if 'links' in agent_json.data and agent_json.data['links'].get('linear'):
-                # Sanitize Linear URL
-                linear_url = str(agent_json.data['links']['linear'])[:200]  # Limit length
-                context.ticket = f"Linear: {linear_url}"
-            
-            if 'workspace' in agent_json.data and agent_json.data['workspace'].get('branch'):
-                # Sanitize branch name
-                branch = str(agent_json.data['workspace']['branch'])[:100]  # Limit length
-                safe_branch = ''.join(c for c in branch if c.isalnum() or c in '-_.')
-                context.pr_title = safe_branch
-            
-            if args.setup:
-                # Just setup configuration
-                result = setup_review(worktree_path, context)
-                print(f"✅ Review configuration saved: {result['config_path']}")
-                print(f"🤖 Configured {result['agents']} agents")
-                print(f"📊 Diff size: {result['diff_size']} bytes")
-                print("\n🎯 To run the review:")
-                print("1. Open the configuration file in Claude")
-                print("2. Use the Task tool to run each agent")
-                print("3. Aggregate results")
-                return
-            
-            # Setup and run review with error handling
-            orchestrator = ClaudeReviewOrchestrator(worktree_path, context)
-            config_path = orchestrator.save_review_config()
-            
-            if args.json:
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    config = json.load(f)
-                    print(json.dumps(config, indent=2))
-            else:
-                print("📋 Review agents configured!")
-                print(f"Configuration: {config_path}")
-                print("\n" + "="*60)
-                print("READY FOR CLAUDE REVIEW")
-                print("="*60)
-                print("\nNext steps:")
-                print("1. Copy the following prompt to Claude:")
-                print("\n" + "-"*40)
-                print("Please run a comprehensive PR review using the Task tool.")
-                print("The review configuration is in .cproj_review.json")
-                print("\nRun these three agents in sequence:")
-                print("1. Senior Developer Code Review (general-purpose agent)")
-                print("2. QA Engineer Review (general-purpose agent)")  
-                print("3. Security Review (general-purpose agent)")
-                print("\nFor each agent, use the prompt from the configuration file.")
-                print("Parse the JSON responses and provide a consolidated report.")
-                print("-"*40)
-                print(f"\n2. The configuration file is: {config_path}")
-                print("3. Each agent has a specific prompt and JSON output contract")
-                print("4. Aggregate all findings and determine if PR should be blocked")
-        
-        except ValueError as e:
-            raise CprojError(f"Security validation failed: {e}")
-        except Exception as e:
-            raise CprojError(f"Review setup failed: {e}")
+    # Legacy cmd_review_agents method removed for security and maintainability
+    # The old implementation had potential security vulnerabilities in:
+    # - Template string formatting without proper sanitization
+    # - Subprocess execution without adequate input validation
+    # - Complex orchestrator dependencies that increased attack surface
+    #
+    # Migration Path:
+    # - Use 'review-code' command instead of 'cproj review agents'
+    # - New implementation provides enhanced security controls:
+    #   - Safe file path validation and sanitization
+    #   - Template injection prevention with string.Template
+    #   - Bounded resource usage and timeout handling
+    #   - Better error handling and user feedback
     
     def cmd_merge(self, args):
         """Merge and cleanup"""
