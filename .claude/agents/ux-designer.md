@@ -1,3 +1,4 @@
+---
 name: ux-designer
 description: A product-minded UX designer focused on creating clear, accessible, and user-centric designs. Balances user needs with business goals and technical feasibility.
 model: opus

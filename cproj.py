@@ -41,13 +41,14 @@ class OnePasswordIntegration:
         if not shutil.which('op'):
             return False
         
-        try:
-            # Check if authenticated
-            subprocess.run(['op', 'account', 'list'], check=True, 
-                         capture_output=True, timeout=5)
-            return True
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-            return False
+        else:
+            try:
+                # Check if authenticated
+                subprocess.run(['op', 'account', 'list'], check=True, 
+                            capture_output=True, timeout=5)
+                return True
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+                return False
     
     @staticmethod
     def get_secret(reference: str) -> Optional[str]:
@@ -1065,6 +1066,12 @@ class CprojCLI:
         open_parser = subparsers.add_parser('open', help='Open workspace')
         open_parser.add_argument('path', nargs='?', help='Worktree path')
         
+        # setup-claude command
+        setup_claude_parser = subparsers.add_parser('setup-claude', 
+                                                   help='Setup Claude workspace in current directory')
+        setup_claude_parser.add_argument('--force', action='store_true',
+                                        help='Force setup even if .claude directory exists')
+        
         # config command
         config_parser = subparsers.add_parser('config', help='Configuration')
         config_parser.add_argument('key', nargs='?', help='Config key')
@@ -1127,6 +1134,8 @@ class CprojCLI:
                 self.cmd_cleanup(parsed_args)
             elif parsed_args.command == 'open':
                 self.cmd_open(parsed_args)
+            elif parsed_args.command == 'setup-claude':
+                self.cmd_setup_claude(parsed_args)
             elif parsed_args.command == 'config':
                 self.cmd_config(parsed_args)
             elif parsed_args.command == 'linear':
@@ -1373,20 +1382,28 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         cproj_root = Path(__file__).parent
         cproj_claude_dir = cproj_root / '.claude'
         
+        logger.debug(f"Looking for cproj .claude directory at: {cproj_claude_dir}")
+        logger.debug(f"cproj .claude directory exists: {cproj_claude_dir.exists()}")
+        
         # Check target project's .claude directory
         project_claude_dir = repo_path / '.claude'
+        logger.debug(f"Project .claude directory: {project_claude_dir}")
+        logger.debug(f"Project .claude directory exists: {project_claude_dir.exists()}")
         
         # Need at least cproj templates to proceed
         if not cproj_claude_dir.exists():
+            logger.debug("No cproj .claude directory found, skipping setup")
             return
         
         # Handle explicit command-line flags
         if args and hasattr(args, 'no_claude') and args.no_claude:
+            logger.debug("--no-claude flag detected, skipping setup")
             return
         
         # Check if we should set up Claude workspace
         default_action = self.config.get('claude_workspace_default', 'yes')
         setup_workspace = default_action == 'yes'
+        logger.debug(f"Default action: {default_action}, setup_workspace: {setup_workspace}")
         
         # Override with explicit --setup-claude flag
         if args and hasattr(args, 'setup_claude') and args.setup_claude:
@@ -1402,6 +1419,10 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             else:
                 response = input(f"Setup Claude workspace in worktree? [y/N]: ").strip().lower()
                 setup_workspace = response in ('y', 'yes')
+            
+            logger.debug(f"Interactive response: '{response}', final setup_workspace: {setup_workspace}")
+        
+        logger.debug(f"Final decision - setup_workspace: {setup_workspace}")
         
         if setup_workspace:
             print(f"🔧 Setting up Claude workspace in {worktree_path}")
@@ -2144,7 +2165,16 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
     
     def cmd_cleanup(self, args):
         """Cleanup worktrees"""
-        repo_path = Path(self.config.get('repo_path', '.'))
+        # Use CWD-based detection like other commands
+        if args.repo:
+            repo_path = Path(args.repo)
+        else:
+            # Find git repository root from current working directory
+            repo_path = self._find_git_root(Path.cwd())
+            if not repo_path:
+                print("❌ Not in a git repository!")
+                print("You need to be in a git repository or specify --repo")
+                return
         
         if not repo_path.exists():
             print("No configured repository")
@@ -2253,9 +2283,24 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                                 try:
                                     git.remove_worktree(Path(wt['path']), force=args.force)
                                     print(f"✅ Removed {Path(wt['path']).name}")
-                                except Exception as e:
-                                    error_msg = str(e)
-                                    if "is dirty" in error_msg and not args.force:
+                                except subprocess.CalledProcessError as e:
+                                    # Capture stderr to get the actual git error message
+                                    try:
+                                        result = subprocess.run(
+                                            ['git', '-C', str(repo_path), 'worktree', 'remove', str(wt['path'])],
+                                            capture_output=True, text=True, check=False
+                                        )
+                                        error_msg = result.stderr.strip() if result.stderr else str(e)
+                                    except:
+                                        error_msg = str(e)
+                                    
+                                    logger.debug(f"Cleanup error message: '{error_msg}'")
+                                    logger.debug(f"Contains 'is dirty': {'is dirty' in error_msg}")
+                                    logger.debug(f"Contains '--force': {'--force' in error_msg}")
+                                    logger.debug(f"args.force: {args.force}")
+                                    logger.debug(f"Interactive mode: {self._is_interactive()}")
+                                    
+                                    if ("is dirty" in error_msg or "--force" in error_msg) and not args.force:
                                         print(f"❌ Failed to remove {Path(wt['path']).name}: Worktree is dirty (has uncommitted changes)")
                                         if self._is_interactive():
                                             force_choice = input(f"Force removal of dirty worktree {Path(wt['path']).name}? [y/N]: ").strip().lower()
@@ -2270,7 +2315,9 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                                         else:
                                             print(f"💡 Use --force to remove dirty worktrees")
                                     else:
-                                        print(f"❌ Failed to remove {Path(wt['path']).name}: {e}")
+                                        print(f"❌ Failed to remove {Path(wt['path']).name}: {error_msg}")
+                                except Exception as e:
+                                    print(f"❌ Failed to remove {Path(wt['path']).name}: {e}")
                         else:
                             print("Cleanup cancelled")
                     else:
@@ -2382,9 +2429,18 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                     try:
                         git.remove_worktree(path, force=args.force)
                         print(f"Removed: {path}")
-                    except Exception as e:
-                        error_msg = str(e)
-                        if "is dirty" in error_msg and not args.force:
+                    except subprocess.CalledProcessError as e:
+                        # Capture stderr to get the actual git error message
+                        try:
+                            result = subprocess.run(
+                                ['git', '-C', str(repo_path), 'worktree', 'remove', str(path)],
+                                capture_output=True, text=True, check=False
+                            )
+                            error_msg = result.stderr.strip() if result.stderr else str(e)
+                        except:
+                            error_msg = str(e)
+                        
+                        if ("is dirty" in error_msg or "--force" in error_msg) and not args.force:
                             print(f"❌ Failed to remove {path.name}: Worktree is dirty (has uncommitted changes)")
                             if self._is_interactive():
                                 force_choice = input(f"Force removal of dirty worktree {path.name}? [y/N]: ").strip().lower()
@@ -2399,7 +2455,157 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                             else:
                                 print(f"💡 Use --force to remove dirty worktrees")
                         else:
-                            print(f"❌ Failed to remove {path.name}: {e}")
+                            print(f"❌ Failed to remove {path.name}: {error_msg}")
+                    except Exception as e:
+                        print(f"❌ Failed to remove {path.name}: {e}")
+    
+    def _merge_claude_config_files(self, cproj_claude_dir, target_claude_dir):
+        """Intelligently merge cproj's template files with existing project files"""
+        
+        # Files that need special JSON merging
+        json_merge_files = {
+            'settings.local.json': self._merge_settings_json,
+            'mcp_config.json': self._merge_mcp_config_json
+        }
+        
+        # Process each file in cproj's .claude directory
+        for cproj_file in cproj_claude_dir.rglob('*'):
+            if cproj_file.is_file():
+                # Get relative path from .claude directory
+                rel_path = cproj_file.relative_to(cproj_claude_dir)
+                target_file = target_claude_dir / rel_path
+                
+                # Ensure target directory exists
+                target_file.parent.mkdir(parents=True, exist_ok=True)
+                
+                # Check if this file needs special merging
+                if rel_path.name in json_merge_files:
+                    if target_file.exists():
+                        # Merge the files
+                        try:
+                            merge_func = json_merge_files[rel_path.name]
+                            merge_func(cproj_file, target_file)
+                            print(f"🔀 Merged {rel_path}")
+                        except Exception as e:
+                            print(f"⚠️  Could not merge {rel_path}, copying cproj version: {e}")
+                            shutil.copy2(cproj_file, target_file)
+                    else:
+                        # Copy new file
+                        shutil.copy2(cproj_file, target_file)
+                        print(f"📋 Added {rel_path}")
+                else:
+                    # For non-JSON files, copy if not exists, otherwise skip to preserve project customizations
+                    if not target_file.exists():
+                        shutil.copy2(cproj_file, target_file)
+                        print(f"📋 Added {rel_path}")
+                    else:
+                        print(f"⏭️  Kept existing {rel_path}")
+    
+    def _merge_settings_json(self, cproj_file, target_file):
+        """Merge settings.local.json files, combining permissions"""
+        with open(cproj_file, 'r') as f:
+            cproj_settings = json.load(f)
+        
+        with open(target_file, 'r') as f:
+            target_settings = json.load(f)
+        
+        # Merge permissions
+        if 'permissions' in cproj_settings and 'permissions' in target_settings:
+            # Combine allow lists (remove duplicates)
+            combined_allow = list(set(
+                cproj_settings['permissions'].get('allow', []) + 
+                target_settings['permissions'].get('allow', [])
+            ))
+            
+            # Keep existing deny and ask lists, add cproj's if they don't exist
+            merged_permissions = {
+                'allow': sorted(combined_allow),
+                'deny': target_settings['permissions'].get('deny', cproj_settings['permissions'].get('deny', [])),
+                'ask': target_settings['permissions'].get('ask', cproj_settings['permissions'].get('ask', []))
+            }
+            
+            target_settings['permissions'] = merged_permissions
+        elif 'permissions' in cproj_settings:
+            target_settings['permissions'] = cproj_settings['permissions']
+        
+        # Write merged settings
+        with open(target_file, 'w') as f:
+            json.dump(target_settings, f, indent=2)
+    
+    def _merge_mcp_config_json(self, cproj_file, target_file):
+        """Merge mcp_config.json files, combining MCP servers"""
+        with open(cproj_file, 'r') as f:
+            cproj_config = json.load(f)
+        
+        with open(target_file, 'r') as f:
+            target_config = json.load(f)
+        
+        # Merge mcpServers
+        if 'mcpServers' in cproj_config:
+            if 'mcpServers' not in target_config:
+                target_config['mcpServers'] = {}
+            
+            # Add cproj's MCP servers, preserving existing ones
+            for server_name, server_config in cproj_config['mcpServers'].items():
+                if server_name not in target_config['mcpServers']:
+                    target_config['mcpServers'][server_name] = server_config
+        
+        # Write merged config
+        with open(target_file, 'w') as f:
+            json.dump(target_config, f, indent=2)
+
+    def cmd_setup_claude(self, args):
+        """Setup Claude workspace in current directory"""
+        current_dir = Path.cwd()
+        
+        # Check if we're in a git repository
+        try:
+            git_root = self._find_git_root(current_dir)
+        except CprojError:
+            raise CprojError("Not in a git repository")
+        
+        # Get cproj's .claude directory (template files)
+        cproj_dir = Path(__file__).parent
+        cproj_claude_dir = cproj_dir / '.claude'
+        if not cproj_claude_dir.exists():
+            raise CprojError(f"cproj template .claude directory not found: {cproj_claude_dir}")
+        
+        # Check if .claude directory exists in current location
+        claude_dir = current_dir / '.claude'
+        
+        if claude_dir.exists():
+            print(f"🔍 Found existing .claude directory in {current_dir}")
+            print("🔀 Merging cproj's template files with existing configuration...")
+            self._merge_claude_config_files(cproj_claude_dir, claude_dir)
+        else:
+            print(f"📂 Creating new .claude directory in {current_dir}")
+            
+            # Load project configuration to check if we should copy from main repo
+            try:
+                config = self._load_config()
+                main_repo_path = Path(config.get('repo_path', ''))
+                
+                # If this is a worktree and main repo has .claude, copy from there first
+                if (str(git_root) != str(main_repo_path) and 
+                    main_repo_path.exists() and 
+                    (main_repo_path / '.claude').exists()):
+                    
+                    print(f"📂 Copying project .claude from {main_repo_path}")
+                    shutil.copytree(main_repo_path / '.claude', claude_dir)
+                    print("🔀 Merging cproj's template files...")
+                    self._merge_claude_config_files(cproj_claude_dir, claude_dir)
+                else:
+                    # Copy cproj template directly
+                    shutil.copytree(cproj_claude_dir, claude_dir)
+                    print("📋 Copied cproj template files")
+                    
+            except CprojError:
+                # No cproj config, just copy template
+                shutil.copytree(cproj_claude_dir, claude_dir)
+                print("📋 Copied cproj template files")
+        
+        print(f"✅ Claude workspace setup complete in {current_dir}")
+        print("💡 cproj commands and agents are now available")
     
     def cmd_open(self, args):
         """Open workspace"""
