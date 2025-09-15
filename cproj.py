@@ -75,7 +75,9 @@ class OnePasswordIntegration:
         if arg.startswith('op://'):
             # For valid 1Password references, we can be more permissive
             # Remove only dangerous shell metacharacters while preserving the reference format
-            dangerous_chars = [';', '&', '|', '`', '$', "'", '"', '\\', '\n', '\r', '\t', '<', '>', '(', ')']
+            dangerous_chars = [
+                ';', '&', '|', '`', '$', "'", '"', '\\', '\n', '\r', '\t', '<', '>', '(', ')'
+            ]
             result = arg
             for char in dangerous_chars:
                 result = result.replace(char, '')
@@ -95,7 +97,7 @@ class OnePasswordIntegration:
         return result
 
     @staticmethod
-    def store_secret(title: str, value: str, vault: str = None) -> Optional[str]:
+    def store_secret(title: str, value: str, vault: Optional[str] = None) -> Optional[str]:
         """Store secret in 1Password and return reference"""
         if not OnePasswordIntegration.is_available():
             return None
@@ -111,9 +113,9 @@ class OnePasswordIntegration:
             cmd = ['op', 'item', 'create', '--category=password', f'--title={safe_title}']
             if safe_vault:
                 cmd.append(f'--vault={safe_vault}')
-            cmd.append(f'password={value}')  # Password value is passed as argument, not shell-escaped
+            cmd.append(f'password={value}')  # Password value is passed as argument
 
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=10)
+            subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=10)
             # Extract reference from output (simplified)
             return f"op://{safe_vault or 'Private'}/{safe_title}/password"
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
@@ -129,7 +131,9 @@ class OnePasswordIntegration:
 
         if OnePasswordIntegration.is_available() and store_choice == 'y':
             vault = input("1Password vault name (or press Enter for Private): ").strip() or None
-            reference = OnePasswordIntegration.store_secret(f"cproj-{secret_name}", secret_value, vault)
+            reference = OnePasswordIntegration.store_secret(
+                f"cproj-{secret_name}", secret_value, vault
+            )
             if reference:
                 print(f"Stored in 1Password. Reference: {reference}")
                 return reference
@@ -147,12 +151,12 @@ class Config:
 
     def _load_config(self) -> Dict:
         if self.config_path.exists():
-            with open(self.config_path) as f:
+            with self.config_path.open() as f:
                 return json.load(f)
         return {}
 
     def save(self):
-        with open(self.config_path, 'w') as f:
+        with self.config_path.open('w') as f:
             json.dump(self._config, f, indent=2)
 
     def get(self, key: str, default=None):
@@ -184,8 +188,9 @@ class GitWorktree:
             # Create from origin if it doesn't exist
             try:
                 self._run_git(['branch', base_branch, f'origin/{base_branch}'])
-            except subprocess.CalledProcessError:
-                raise CprojError(f"Base branch '{base_branch}' not found locally or on origin")
+            except subprocess.CalledProcessError as e:
+                msg = f"Base branch '{base_branch}' not found locally or on origin"
+                raise CprojError(msg) from e
 
         # Fast-forward the base branch
         current_branch = self._get_current_branch()
@@ -2672,7 +2677,10 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
 
             # Prompt for project
             current_project = self.config.get('linear_default_project', '')
-            project_prompt = f"Default project [{current_project}]: " if current_project else "Default project (optional): "
+            project_prompt = (
+                f"Default project [{current_project}]: " if current_project
+                else "Default project (optional): "
+            )
             project = input(project_prompt).strip()
             if project:
                 self.config.set('linear_default_project', project)
@@ -2746,7 +2754,9 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             print("   2. Right-click on the password/secret field")
             print("   3. Select 'Copy Secret Reference'")
             print()
-            reference = input("Enter 1Password reference (e.g., op://Private/linear-api-key/password): ").strip()
+            reference = input(
+                "Enter 1Password reference (e.g., op://Private/linear-api-key/password): "
+            ).strip()
             if reference:
                 # Strip quotes that 1Password includes in "Copy Secret Reference"
                 reference = reference.strip('"\'')
@@ -2770,7 +2780,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
 
         print("\n💡 Configuration updated! Test with: cproj linear test")
 
-    def cmd_linear_test(self, args):
+    def cmd_linear_test(self, args):  # noqa: ARG002
         """Test Linear integration"""
         print("🧪 Testing Linear Integration")
         print("-" * 40)
@@ -2793,7 +2803,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         print("\n💡 Basic configuration looks good!")
         print("📝 To fully test, try: add-ticket 'test ticket creation'")
 
-    def cmd_linear_status(self, args):
+    def cmd_linear_status(self, args):  # noqa: ARG002
         """Show Linear configuration status"""
         print("📊 Linear Integration Status")
         print("-" * 40)
@@ -2814,7 +2824,8 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             key = linear_config['LINEAR_API_KEY']
             source = linear_config.get('LINEAR_API_KEY_SOURCE', 'File')
             print(f"  Key Source: {source}")
-            print(f"  Key Preview: {key[:8]}...{key[-4:] if len(key) > 12 else ''}")
+            min_key_length = 12
+            print(f"  Key Preview: {key[:8]}...{key[-4:] if len(key) > min_key_length else ''}")
 
         # Show file status
         git_root = self._find_git_root(Path.cwd())
@@ -2828,19 +2839,25 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                 print(f"  File permissions: {oct(env_file.stat().st_mode)[-3:]}")
 
             if gitignore_file.exists():
-                with open(gitignore_file) as f:
+                with gitignore_file.open() as f:
                     content = f.read()
                     is_ignored = '.env.linear' in content
-                    print(f"  .gitignore entry: {'✅ Protected' if is_ignored else '⚠️  Not protected'}")
+                    print(
+                        f"  .gitignore entry: {'✅ Protected' if is_ignored else '⚠️  Not protected'}"
+                    )
             else:
                 print("  .gitignore: ❌ Missing")
 
         # Show workspace status
         claude_dir = Path.cwd() / '.claude'
         print("\n🤖 Workspace Status:")
-        print(f"  Commands available: {'✅ Yes' if (claude_dir / 'commands').exists() else '❌ No'}")
-        print(f"  Agents available: {'✅ Yes' if (claude_dir / 'agents').exists() else '❌ No'}")
-        print(f"  MCP config: {'✅ Yes' if (claude_dir / 'mcp_config.json').exists() else '❌ No'}")
+        commands_available = '✅ Yes' if (claude_dir / 'commands').exists() else '❌ No'
+        agents_available = '✅ Yes' if (claude_dir / 'agents').exists() else '❌ No'
+        mcp_config_available = '✅ Yes' if (claude_dir / 'mcp_config.json').exists() else '❌ No'
+
+        print(f"  Commands available: {commands_available}")
+        print(f"  Agents available: {agents_available}")
+        print(f"  MCP config: {mcp_config_available}")
 
     # Alias methods for integration tests compatibility
     def cmd_setup(self, args):
