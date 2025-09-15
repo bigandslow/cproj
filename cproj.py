@@ -1076,6 +1076,8 @@ class CprojCLI:
         
         linear_setup = linear_sub.add_parser('setup', help='Setup Linear integration')
         linear_setup.add_argument('--api-key', help='Linear API key')
+        linear_setup.add_argument('--from-1password', action='store_true', 
+                                 help='Configure Linear API key from 1Password reference')
         linear_setup.add_argument('--team', help='Default team ID/key')
         linear_setup.add_argument('--project', help='Default project ID')
         linear_setup.add_argument('--org', help='Linear organization URL')
@@ -1526,6 +1528,68 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         except (OSError, ValueError) as e:
             raise ValueError(f"Failed to store API key: {e}")
     
+    def _store_linear_1password_ref(self, reference: str):
+        """Store Linear API key 1Password reference in .cproj directory"""
+        try:
+            # Find git repository root
+            git_root = self._find_git_root(Path.cwd())
+            if not git_root:
+                raise ValueError("Not in a git repository")
+            
+            # Ensure .cproj directory exists
+            cproj_dir = git_root / '.cproj'
+            cproj_dir.mkdir(exist_ok=True)
+            
+            # Store reference
+            ref_file = cproj_dir / '.linear-1password-ref'
+            with open(ref_file, 'w') as f:
+                f.write(reference)
+            
+            # Set restrictive permissions
+            ref_file.chmod(0o600)
+            
+            logger.info(f"Stored 1Password reference for Linear API key")
+            
+        except (OSError, ValueError) as e:
+            raise ValueError(f"Failed to store 1Password reference: {e}")
+    
+    def _setup_api_key_from_1password(self):
+        """Interactive setup for API key from 1Password"""
+        # Check if 1Password is available
+        if not OnePasswordIntegration.is_available():
+            print("❌ 1Password CLI not available or not authenticated")
+            print("💡 Install 1Password CLI and run 'op account add' to set up")
+            return False
+            
+        # Prompt for 1Password reference
+        print("\n📝 To get your Linear API key reference from 1Password:")
+        print("   1. Open the Linear API key item in 1Password")
+        print("   2. Right-click on the password/secret field")
+        print("   3. Select 'Copy Secret Reference'")
+        print()
+        reference = input("Enter 1Password reference (e.g., op://Private/linear-api-key/password): ").strip()
+        if reference:
+            # Strip quotes that 1Password includes in "Copy Secret Reference"
+            reference = reference.strip('"\'')
+            
+            # Test the reference
+            api_key = OnePasswordIntegration.get_secret(reference)
+            if api_key:
+                try:
+                    self._store_linear_1password_ref(reference)
+                    print("✅ 1Password reference stored and validated")
+                    return True
+                except ValueError as e:
+                    print(f"❌ Failed to store reference: {e}")
+                    return False
+            else:
+                print("❌ Could not retrieve API key from 1Password reference")
+                print("💡 Check that the reference is correct and you're authenticated")
+                return False
+        else:
+            print("❌ No reference provided")
+            return False
+    
     def _add_to_gitignore(self, repo_path: Path, pattern: str):
         """Add pattern to .gitignore if not already present"""
         gitignore_path = repo_path / '.gitignore'
@@ -1545,25 +1609,41 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             f.write(f"{pattern}\n")
     
     def _load_linear_config(self) -> Dict[str, str]:
-        """Load Linear configuration from .env.linear file"""
+        """Load Linear configuration from .env.linear file or 1Password"""
         git_root = self._find_git_root(Path.cwd())
         if not git_root:
             return {}
         
-        env_file = git_root / '.env.linear'
-        if not env_file.exists():
-            return {}
-        
         config = {}
-        try:
-            with open(env_file, 'r') as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith('#') and '=' in line:
-                        key, value = line.split('=', 1)
-                        config[key.strip()] = value.strip()
-        except OSError:
-            pass
+        
+        # First check for .env.linear file
+        env_file = git_root / '.env.linear'
+        if env_file.exists():
+            try:
+                with open(env_file, 'r') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith('#') and '=' in line:
+                            key, value = line.split('=', 1)
+                            config[key.strip()] = value.strip()
+            except OSError:
+                pass
+        
+        # Check for 1Password reference if API key not found
+        if 'LINEAR_API_KEY' not in config:
+            cproj_dir = git_root / '.cproj'
+            onepass_ref_file = cproj_dir / '.linear-1password-ref'
+            if onepass_ref_file.exists():
+                try:
+                    with open(onepass_ref_file, 'r') as f:
+                        reference = f.read().strip()
+                        if reference and OnePasswordIntegration.is_available():
+                            api_key = OnePasswordIntegration.get_secret(reference)
+                            if api_key:
+                                config['LINEAR_API_KEY'] = api_key
+                                config['LINEAR_API_KEY_SOURCE'] = '1Password'
+                except (OSError, ValueError):
+                    pass
         
         return config
     
@@ -2177,7 +2257,18 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                                     error_msg = str(e)
                                     if "is dirty" in error_msg and not args.force:
                                         print(f"❌ Failed to remove {Path(wt['path']).name}: Worktree is dirty (has uncommitted changes)")
-                                        print(f"💡 Use --force to remove dirty worktrees")
+                                        if self._is_interactive():
+                                            force_choice = input(f"Force removal of dirty worktree {Path(wt['path']).name}? [y/N]: ").strip().lower()
+                                            if force_choice in ['y', 'yes']:
+                                                try:
+                                                    git.remove_worktree(Path(wt['path']), force=True)
+                                                    print(f"✅ Force removed {Path(wt['path']).name}")
+                                                except Exception as force_e:
+                                                    print(f"❌ Failed to force remove {Path(wt['path']).name}: {force_e}")
+                                            else:
+                                                print(f"⏭️  Skipped {Path(wt['path']).name}")
+                                        else:
+                                            print(f"💡 Use --force to remove dirty worktrees")
                                     else:
                                         print(f"❌ Failed to remove {Path(wt['path']).name}: {e}")
                         else:
@@ -2295,7 +2386,18 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                         error_msg = str(e)
                         if "is dirty" in error_msg and not args.force:
                             print(f"❌ Failed to remove {path.name}: Worktree is dirty (has uncommitted changes)")
-                            print(f"💡 Use --force to remove dirty worktrees")
+                            if self._is_interactive():
+                                force_choice = input(f"Force removal of dirty worktree {path.name}? [y/N]: ").strip().lower()
+                                if force_choice in ['y', 'yes']:
+                                    try:
+                                        git.remove_worktree(path, force=True)
+                                        print(f"✅ Force removed {path.name}")
+                                    except Exception as force_e:
+                                        print(f"❌ Failed to force remove {path.name}: {force_e}")
+                                else:
+                                    print(f"⏭️  Skipped {path.name}")
+                            else:
+                                print(f"💡 Use --force to remove dirty worktrees")
                         else:
                             print(f"❌ Failed to remove {path.name}: {e}")
     
@@ -2381,28 +2483,131 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         print("🔗 Linear Integration Setup")
         print("-" * 40)
         
-        # Update organization URL
-        if args.org:
-            self.config.set('linear_org', args.org)
-            print(f"✅ Set organization: {args.org}")
+        # Check if any arguments were provided
+        has_args = any([args.org, args.team, args.project, args.api_key, args.from_1password])
         
-        # Update default team
-        if args.team:
-            self.config.set('linear_default_team', args.team)
-            print(f"✅ Set default team: {args.team}")
+        # If no arguments, run interactive setup
+        if not has_args:
+            print("\n📝 Interactive Linear Setup")
+            print("Configure your Linear integration step by step:")
+            print()
+            
+            # Prompt for organization
+            current_org = self.config.get('linear_org', '')
+            org_prompt = f"Linear organization [{current_org}]: " if current_org else "Linear organization: "
+            org = input(org_prompt).strip()
+            if org:
+                self.config.set('linear_org', org)
+                print(f"✅ Set organization: {org}")
+            elif current_org:
+                print(f"✅ Using existing organization: {current_org}")
+            
+            # Prompt for team
+            current_team = self.config.get('linear_default_team', '')
+            team_prompt = f"Default team [{current_team}]: " if current_team else "Default team (optional): "
+            team = input(team_prompt).strip()
+            if team:
+                self.config.set('linear_default_team', team)
+                print(f"✅ Set default team: {team}")
+            elif current_team:
+                print(f"✅ Using existing team: {current_team}")
+            
+            # Prompt for project
+            current_project = self.config.get('linear_default_project', '')
+            project_prompt = f"Default project [{current_project}]: " if current_project else "Default project (optional): "
+            project = input(project_prompt).strip()
+            if project:
+                self.config.set('linear_default_project', project)
+                print(f"✅ Set default project: {project}")
+            elif current_project:
+                print(f"✅ Using existing project: {current_project}")
+            
+            # Check if API key is already configured
+            linear_config = self._load_linear_config()
+            if linear_config.get('LINEAR_API_KEY'):
+                source = linear_config.get('LINEAR_API_KEY_SOURCE', 'File')
+                print(f"✅ API key already configured (source: {source})")
+            else:
+                # Prompt for API key configuration
+                print("\n🔑 API Key Configuration")
+                print("Choose how to configure your Linear API key:")
+                print("  1. From 1Password (recommended)")
+                print("  2. Enter directly")
+                print("  3. Skip for now")
+                
+                choice = input("Choose option [1]: ").strip() or "1"
+                
+                if choice == "1":
+                    self._setup_api_key_from_1password()
+                elif choice == "2":
+                    api_key = input("Enter your Linear API key: ").strip()
+                    if api_key:
+                        try:
+                            self._store_linear_api_key(api_key)
+                            print("✅ API key stored securely")
+                        except ValueError as e:
+                            print(f"❌ Failed to store API key: {e}")
+                elif choice == "3":
+                    print("⏭️  Skipping API key configuration")
+                    print("💡 You can set it later with: cproj linear setup --from-1password")
+        else:
+            # Handle command-line arguments
+            # Update organization URL
+            if args.org:
+                self.config.set('linear_org', args.org)
+                print(f"✅ Set organization: {args.org}")
+            
+            # Update default team
+            if args.team:
+                self.config.set('linear_default_team', args.team)
+                print(f"✅ Set default team: {args.team}")
+            
+            # Update default project
+            if args.project:
+                self.config.set('linear_default_project', args.project)
+                print(f"✅ Set default project: {args.project}")
         
-        # Update default project
-        if args.project:
-            self.config.set('linear_default_project', args.project)
-            print(f"✅ Set default project: {args.project}")
-        
-        # Update API key
+        # Update API key (command-line args)
         if args.api_key:
             try:
                 self._store_linear_api_key(args.api_key)
                 print("✅ API key stored securely")
             except ValueError as e:
                 print(f"❌ Failed to store API key: {e}")
+                return
+        elif args.from_1password:
+            # Check if 1Password is available
+            if not OnePasswordIntegration.is_available():
+                print("❌ 1Password CLI not available or not authenticated")
+                print("💡 Install 1Password CLI and run 'op account add' to set up")
+                return
+                
+            # Prompt for 1Password reference
+            print("\n📝 To get your Linear API key reference from 1Password:")
+            print("   1. Open the Linear API key item in 1Password")
+            print("   2. Right-click on the password/secret field")
+            print("   3. Select 'Copy Secret Reference'")
+            print()
+            reference = input("Enter 1Password reference (e.g., op://Private/linear-api-key/password): ").strip()
+            if reference:
+                # Strip quotes that 1Password includes in "Copy Secret Reference"
+                reference = reference.strip('"\'')
+                
+                # Test the reference
+                api_key = OnePasswordIntegration.get_secret(reference)
+                if api_key:
+                    try:
+                        self._store_linear_1password_ref(reference)
+                        print("✅ 1Password reference stored and validated")
+                    except ValueError as e:
+                        print(f"❌ Failed to store reference: {e}")
+                        return
+                else:
+                    print("❌ Could not retrieve API key from 1Password reference")
+                    print("💡 Check that the reference is correct and you're authenticated")
+                    return
+            else:
+                print("❌ No reference provided")
                 return
         
         print("\n💡 Configuration updated! Test with: cproj linear test")
@@ -2449,6 +2654,8 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         print(f"  API Key: {'✅ Configured' if linear_config.get('LINEAR_API_KEY') else '❌ Not configured'}")
         if linear_config.get('LINEAR_API_KEY'):
             key = linear_config['LINEAR_API_KEY']
+            source = linear_config.get('LINEAR_API_KEY_SOURCE', 'File')
+            print(f"  Key Source: {source}")
             print(f"  Key Preview: {key[:8]}...{key[-4:] if len(key) > 12 else ''}")
         
         # Show file status

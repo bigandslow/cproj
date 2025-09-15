@@ -15,6 +15,36 @@ Transform high-level user input into a well-structured Linear ticket with compre
 
 **Important**: This command ONLY creates the ticket(s). It does not start implementation or modify any code.
 
+## Linear API Configuration
+
+Before creating tickets, this command needs access to the Linear API. The API key can be configured in several ways:
+
+1. **From 1Password (Recommended)**:
+   - If the Linear API key is not found in the environment, prompt the user:
+     ```
+     "Linear API key not found. Would you like to retrieve it from 1Password? [y/N]"
+     ```
+   - If yes, prompt for the 1Password reference:
+     ```
+     "Enter 1Password reference (e.g., op://Private/linear-api-key/password):"
+     "Tip: In 1Password, right-click on the field and select 'Copy Secret Reference' to get this value"
+     ```
+   - Use `op read <reference>` to retrieve the key
+   - Store the reference in `.cproj/.linear-1password-ref` for future use
+   - On subsequent runs, automatically use the stored reference
+
+2. **From Environment**:
+   - Check for `LINEAR_API_KEY` environment variable
+   - Check for `.env.linear` file in the project root
+
+3. **Manual Entry**:
+   - If neither 1Password nor environment has the key, prompt:
+     ```
+     "Enter your Linear API key (or 'skip' to cancel):"
+     ```
+
+**Security Note**: Never log or display the actual API key. Store references securely.
+
 ## Core Agent Workflow
 
 For any feature request that isn't trivial (i.e., not LIGHT), this command follows a strict parallel execution rule using the core agent trio.
