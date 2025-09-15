@@ -120,14 +120,33 @@ jobs:
         uv run mypy cproj.py claude_review_agents.py --ignore-missing-imports
 
   integration-test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.10", "3.11", "3.12"]
+        exclude:
+          - os: macos-latest
+            python-version: "3.10"
+
     steps:
     - uses: actions/checkout@v4
 
-    - name: Set up Python
+    - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v4
       with:
-        python-version: "3.11"
+        python-version: ${{ matrix.python-version }}
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Set up Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '17'
 
     - name: Install uv
       uses: astral-sh/setup-uv@v2
@@ -141,16 +160,36 @@ jobs:
       run: |
         uv sync --dev
 
-    - name: Run integration tests
+    - name: Run Git integration tests
       run: |
-        uv run pytest tests/test_basic_functionality.py tests/test_exception_handling.py -v --tb=short
+        uv run pytest tests/test_integration_git.py -v --tb=short -m integration
 
-    - name: Test CLI functionality
+    - name: Run CLI integration tests
+      run: |
+        uv run pytest tests/test_integration_cli.py -v --tb=short -m integration
+
+    - name: Run Environment integration tests
+      run: |
+        uv run pytest tests/test_integration_environment.py -v --tb=short -m integration
+
+    - name: Run all integration tests with coverage
+      run: |
+        uv run pytest tests/test_integration_*.py -v --cov=cproj --cov-report=xml --cov-report=term-missing -m integration
+
+    - name: Test CLI as subprocess
       run: |
         # Test basic CLI commands don't crash
         python cproj.py --help
         python cproj.py setup --help || true
         python cproj.py create --help || true
+
+    - name: Upload integration test coverage
+      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        flags: integration
+        name: integration-tests
 
   performance-test:
     runs-on: ubuntu-latest

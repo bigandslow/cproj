@@ -24,7 +24,16 @@ test-parallel: ## Run tests in parallel
 	uv run pytest -n auto
 
 test-integration: ## Run integration tests
-	uv run pytest -m integration
+	uv run pytest tests/test_integration_*.py -v -m integration
+
+test-integration-git: ## Run Git integration tests
+	uv run pytest tests/test_integration_git.py -v -m integration
+
+test-integration-cli: ## Run CLI integration tests
+	uv run pytest tests/test_integration_cli.py -v -m integration
+
+test-integration-env: ## Run Environment integration tests
+	uv run pytest tests/test_integration_environment.py -v -m integration
 
 lint: ## Run linting checks
 	uv run ruff check cproj.py claude_review_agents.py tests/
