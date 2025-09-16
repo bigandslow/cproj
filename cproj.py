@@ -753,7 +753,7 @@ class EnvironmentSetup:
                     # Would run npm install in real implementation
                     logger.debug("Would run npm install if nvm integration was implemented")
                     env_data["packages_installed"] = True
-                except Exception as e:
+                except (subprocess.CalledProcessError, OSError) as e:
                     logger.debug(f"Failed to install packages: {e}")
                     env_data["packages_installed"] = False
 
@@ -2359,7 +2359,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                 print("   cproj review agents")
             except ImportError:
                 print("⚠️  Review agents not available (claude_review_agents.py not found)")
-            except Exception as e:
+            except (AttributeError, TypeError, ValueError) as e:
                 print(f"⚠️  Could not setup review agents: {e}")
 
         print(f"\n🎉 Branch {branch} ready for review")
@@ -2607,7 +2607,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         try:
             git.remove_worktree(path, force=force)
             print(f"✅ Removed {path.name}")
-        except Exception as e:
+        except (subprocess.CalledProcessError, OSError, CprojError) as e:
             error_msg = str(e)
             if "is dirty" in error_msg and not force:
                 print(f"❌ Failed to remove {path.name}: Worktree is dirty (has uncommitted changes)")
@@ -2617,7 +2617,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                         try:
                             git.remove_worktree(path, force=True)
                             print(f"✅ Force removed {path.name}")
-                        except Exception as force_e:
+                        except (subprocess.CalledProcessError, OSError, CprojError) as force_e:
                             print(f"❌ Failed to force remove {path.name}: {force_e}")
                     else:
                         print(f"⏭️  Skipped {path.name}")
@@ -2720,7 +2720,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         try:
             git.remove_worktree(path, force=force_removal)
             print(f"✅ Removed {path.name}")
-        except Exception as e:
+        except (subprocess.CalledProcessError, OSError, CprojError) as e:
             error_msg = str(e)
             if "is dirty" in error_msg and not force_removal:
                 print(f"❌ Failed to remove {path.name}: Worktree is dirty (has uncommitted changes)")
@@ -2730,7 +2730,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                         try:
                             git.remove_worktree(path, force=True)
                             print(f"✅ Force removed {path.name}")
-                        except Exception as force_e:
+                        except (subprocess.CalledProcessError, OSError, CprojError) as force_e:
                             print(f"❌ Failed to force remove {path.name}: {force_e}")
                     else:
                         print(f"⏭️  Skipped {path.name}")
@@ -3069,7 +3069,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                             merge_func = json_merge_files[rel_path.name]
                             merge_func(cproj_file, target_file)
                             print(f"🔀 Merged {rel_path}")
-                        except Exception as e:
+                        except (json.JSONDecodeError, OSError, ValueError, TypeError, KeyError) as e:
                             print(f"⚠️  Could not merge {rel_path}, copying cproj version: {e}")
                             shutil.copy2(cproj_file, target_file)
                     else:
