@@ -1744,7 +1744,10 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
 
         return setup_workspace
 
-    def _execute_claude_workspace_setup(self, worktree_path: Path, repo_path: Path, cproj_claude_dir: Path, project_claude_dir: Path):
+    def _execute_claude_workspace_setup(
+        self, worktree_path: Path, repo_path: Path,
+        cproj_claude_dir: Path, project_claude_dir: Path
+    ):
         """Execute the Claude workspace setup process"""
         print(f"🔧 Setting up Claude workspace in {worktree_path}")
         try:
@@ -2221,7 +2224,10 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
 
         return python_env, node_env, java_env
 
-    def _create_agent_json(self, worktree_path, repo_path, project_name, args, python_env, node_env, java_env, base_branch):
+    def _create_agent_json(
+        self, worktree_path, repo_path, project_name, args,
+        python_env, node_env, java_env, base_branch
+    ):
         """Create and configure .agent.json file"""
         agent_json = AgentJson(worktree_path)
         agent_json.set_project(project_name, str(repo_path))
@@ -2291,7 +2297,9 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         python_env, node_env, java_env = self._setup_worktree_environment(worktree_path, repo_path, args)
 
         # Create .agent.json
-        self._create_agent_json(worktree_path, repo_path, project_name, args, python_env, node_env, java_env, base_branch)
+        self._create_agent_json(
+            worktree_path, repo_path, project_name, args, python_env, node_env, java_env, base_branch
+        )
 
         # Setup Claude integration
         self._setup_claude_symlink(worktree_path, repo_path)

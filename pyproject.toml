@@ -168,6 +168,7 @@ ignore = [
     "PLR0913", # too-many-arguments
     "PLR0912", # too-many-branches
     "TRY003",  # raise-vanilla-args
+    "TRY300",  # try-consider-else (stylistic preference)
     "S603",    # subprocess-without-shell-equals-true
     "S607",    # start-process-with-partial-path
 ]
