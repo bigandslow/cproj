@@ -10,6 +10,7 @@ import logging
 import os
 import platform
 import shutil
+import stat
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -1463,7 +1464,29 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                                         shutil.rmtree(target_file)
                                     shutil.copytree(item, target_file)
                                     print(f"  ✅ Merged project {item.name}/")
-                
+
+                # Copy standalone files from both cproj and project .claude directories
+                # Start with cproj standalone files
+                for item in cproj_claude_dir.iterdir():
+                    if item.is_file() and item.name not in ['mcp_config.json']:  # mcp_config.json handled separately
+                        target_file = worktree_claude_dir / item.name
+                        shutil.copy2(item, target_file)
+                        # Make shell scripts executable
+                        if item.suffix == '.sh':
+                            target_file.chmod(target_file.stat().st_mode | 0o111)
+                        print(f"  ✅ Copied cproj {item.name}")
+
+                # Copy standalone files from project (will overwrite cproj versions)
+                if project_claude_dir.exists():
+                    for item in project_claude_dir.iterdir():
+                        if item.is_file() and item.name not in ['mcp_config.json']:  # mcp_config.json handled separately
+                            target_file = worktree_claude_dir / item.name
+                            shutil.copy2(item, target_file)
+                            # Make shell scripts executable
+                            if item.suffix == '.sh':
+                                target_file.chmod(target_file.stat().st_mode | 0o111)
+                            print(f"  ✅ Merged project {item.name}")
+
                 # Copy MCP config (prefer project over cproj template)
                 mcp_source = None
                 if project_claude_dir.exists():
@@ -2497,6 +2520,9 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                     # For non-JSON files, copy if not exists, otherwise skip to preserve project customizations
                     if not target_file.exists():
                         shutil.copy2(cproj_file, target_file)
+                        # Make shell scripts executable
+                        if rel_path.suffix == '.sh':
+                            target_file.chmod(target_file.stat().st_mode | 0o111)
                         print(f"📋 Added {rel_path}")
                     else:
                         print(f"⏭️  Kept existing {rel_path}")
