@@ -1886,7 +1886,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             self._add_to_gitignore(git_root, ".env.linear")
 
         except (OSError, ValueError) as e:
-            raise ValueError(f"Failed to store API key: {e}")
+            raise ValueError(f"Failed to store API key: {e}") from e
 
     def _store_linear_1password_ref(self, reference: str):
         """Store Linear API key 1Password reference in .cproj directory"""
@@ -1911,7 +1911,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             logger.info("Stored 1Password reference for Linear API key")
 
         except (OSError, ValueError) as e:
-            raise ValueError(f"Failed to store 1Password reference: {e}")
+            raise ValueError(f"Failed to store 1Password reference: {e}") from e
 
     def _setup_api_key_from_1password(self):
         """Interactive setup for API key from 1Password"""
@@ -1983,9 +1983,9 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             try:
                 with env_file.open() as f:
                     for line in f:
-                        line = line.strip()
-                        if line and not line.startswith("#") and "=" in line:
-                            key, value = line.split("=", 1)
+                        stripped_line = line.strip()
+                        if stripped_line and not stripped_line.startswith("#") and "=" in stripped_line:
+                            key, value = stripped_line.split("=", 1)
                             config[key.strip()] = value.strip()
             except OSError:
                 pass
@@ -2355,7 +2355,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             print("\n🤖 Running automated review agents...")
             try:
                 # Import and run agents
-                from claude_review_agents import ProjectContext, setup_review
+                from claude_review_agents import ProjectContext, setup_review  # noqa: PLC0415
 
                 context = ProjectContext()
                 context.ticket = agent_json.data["links"].get("linear", "")
