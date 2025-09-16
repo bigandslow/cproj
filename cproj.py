@@ -587,82 +587,99 @@ class EnvironmentSetup:
         """Setup Python environment with uv or venv"""
         env_data = {"manager": "none", "active": False, "pyproject": False, "requirements": False}
 
-        # Find Python project files
+        # Find and validate Python project files
         pyproject_paths, requirements_paths = self._find_python_files()
-
         pyproject_exists = len(pyproject_paths) > 0
         requirements_exists = len(requirements_paths) > 0
-
         env_data["pyproject"] = pyproject_exists
         env_data["requirements"] = requirements_exists
 
         if not (pyproject_exists or requirements_exists):
             return env_data
 
-        # Handle shared venv option
+        # Try shared venv first if requested
         if shared_venv and repo_path:
-            # Search for .venv in repo root and common subdirectories
-            venv_search_paths = [
-                repo_path / ".venv",
-                repo_path / "bankrec" / ".venv",  # Common pattern in your repos
-                *list(repo_path.glob("*/.venv")),  # Any direct subdirectory
-            ]
+            shared_result = self._setup_shared_venv(repo_path, env_data)
+            if shared_result:
+                return shared_result
 
-            main_venv = None
-            for venv_path in venv_search_paths:
-                if venv_path.exists() and venv_path.is_dir():
-                    main_venv = venv_path
-                    break
-
-            if main_venv:
-                # Determine where to create the symlink in worktree
-                # If venv is in a subdirectory, preserve that structure
-                if main_venv.parent != repo_path:
-                    subdir = main_venv.parent.name
-                    worktree_venv = self.worktree_path / subdir / ".venv"
-                    worktree_venv.parent.mkdir(parents=True, exist_ok=True)
-                else:
-                    worktree_venv = self.worktree_path / ".venv"
-
-                try:
-                    # Create symlink to main repo's venv
-                    if worktree_venv.exists():
-                        if worktree_venv.is_symlink():
-                            worktree_venv.unlink()
-                        else:
-                            shutil.rmtree(worktree_venv)
-                    worktree_venv.symlink_to(main_venv, target_is_directory=True)
-                    env_data["manager"] = "shared"
-                    env_data["active"] = True
-                    print(f"Created shared venv link: {worktree_venv} -> {main_venv}")
-                    return env_data
-                except (OSError, subprocess.CalledProcessError) as e:
-                    print(f"Warning: Failed to create shared venv: {e}")
-            else:
-                print("No .venv found in main repo to share")
-
-        # Try uv first
-        if shutil.which("uv"):
-            try:
-                subprocess.run(["uv", "venv"], cwd=self.worktree_path, check=True, capture_output=True)
-                env_data["manager"] = "uv"
-                env_data["active"] = True
-
-                if auto_install and (pyproject_exists or requirements_exists):
-                    subprocess.run(
-                        ["uv", "pip", "sync"]
-                        if pyproject_exists
-                        else ["uv", "pip", "install", "-r", "requirements.txt"],
-                        cwd=self.worktree_path,
-                        check=True,
-                        capture_output=True,
-                    )
-
-                return env_data
-            except subprocess.CalledProcessError:
-                pass
+        # Try uv next
+        uv_result = self._setup_uv_environment(env_data, auto_install, pyproject_exists, requirements_exists)
+        if uv_result:
+            return uv_result
 
         # Fallback to venv
+        return self._setup_venv_environment(env_data, auto_install, requirements_exists)
+
+    def _setup_shared_venv(self, repo_path, env_data):
+        """Setup shared virtual environment symlink"""
+        venv_search_paths = [
+            repo_path / ".venv",
+            repo_path / "bankrec" / ".venv",  # Common pattern in your repos
+            *list(repo_path.glob("*/.venv")),  # Any direct subdirectory
+        ]
+
+        main_venv = None
+        for venv_path in venv_search_paths:
+            if venv_path.exists() and venv_path.is_dir():
+                main_venv = venv_path
+                break
+
+        if main_venv:
+            return self._create_venv_symlink(main_venv, repo_path, env_data)
+        else:
+            print("No .venv found in main repo to share")
+            return None
+
+    def _create_venv_symlink(self, main_venv, repo_path, env_data):
+        """Create symlink to main repo's venv"""
+        # Determine where to create the symlink in worktree
+        if main_venv.parent != repo_path:
+            subdir = main_venv.parent.name
+            worktree_venv = self.worktree_path / subdir / ".venv"
+            worktree_venv.parent.mkdir(parents=True, exist_ok=True)
+        else:
+            worktree_venv = self.worktree_path / ".venv"
+
+        try:
+            if worktree_venv.exists():
+                if worktree_venv.is_symlink():
+                    worktree_venv.unlink()
+                else:
+                    shutil.rmtree(worktree_venv)
+            worktree_venv.symlink_to(main_venv, target_is_directory=True)
+            env_data["manager"] = "shared"
+            env_data["active"] = True
+            print(f"Created shared venv link: {worktree_venv} -> {main_venv}")
+            return env_data
+        except (OSError, subprocess.CalledProcessError) as e:
+            print(f"Warning: Failed to create shared venv: {e}")
+            return None
+
+    def _setup_uv_environment(self, env_data, auto_install, pyproject_exists, requirements_exists):
+        """Setup Python environment using uv"""
+        if not shutil.which("uv"):
+            return None
+        try:
+            subprocess.run(["uv", "venv"], cwd=self.worktree_path, check=True, capture_output=True)
+            env_data["manager"] = "uv"
+            env_data["active"] = True
+
+            if auto_install and (pyproject_exists or requirements_exists):
+                subprocess.run(
+                    ["uv", "pip", "sync"]
+                    if pyproject_exists
+                    else ["uv", "pip", "install", "-r", "requirements.txt"],
+                    cwd=self.worktree_path,
+                    check=True,
+                    capture_output=True,
+                )
+            return env_data
+        except subprocess.CalledProcessError:
+            return None
+
+    def _setup_venv_environment(self, env_data, auto_install, requirements_exists):
+        """Setup Python environment using venv"""
         try:
             subprocess.run(
                 [sys.executable, "-m", "venv", ".venv"],
@@ -674,33 +691,34 @@ class EnvironmentSetup:
             env_data["active"] = True
 
             if auto_install and requirements_exists:
-                # Validate path safety
-                venv_path = self.worktree_path / ".venv"
-                if not venv_path.exists() or not venv_path.is_dir():
-                    raise CprojError(f"Virtual environment not found at {venv_path}")
-
-                if platform.system() == "Windows":
-                    pip_cmd = venv_path / "Scripts" / "pip.exe"
-                else:
-                    pip_cmd = venv_path / "bin" / "pip"
-
-                # Validate pip executable exists and is within expected path
-                if not pip_cmd.exists():
-                    raise CprojError(f"pip executable not found at {pip_cmd}")
-                if not str(pip_cmd).startswith(str(self.worktree_path)):
-                    raise CprojError(f"pip path {pip_cmd} is outside worktree {self.worktree_path}")
-
-                subprocess.run(
-                    [str(pip_cmd), "install", "-r", "requirements.txt"],
-                    cwd=self.worktree_path,
-                    check=True,
-                    capture_output=True,
-                )
-
+                self._install_requirements_with_venv()
         except subprocess.CalledProcessError:
             pass
-
         return env_data
+
+    def _install_requirements_with_venv(self):
+        """Install requirements using venv pip"""
+        venv_path = self.worktree_path / ".venv"
+        if not venv_path.exists() or not venv_path.is_dir():
+            raise CprojError(f"Virtual environment not found at {venv_path}")
+
+        if platform.system() == "Windows":
+            pip_cmd = venv_path / "Scripts" / "pip.exe"
+        else:
+            pip_cmd = venv_path / "bin" / "pip"
+
+        # Validate pip executable exists and is within expected path
+        if not pip_cmd.exists():
+            raise CprojError(f"pip executable not found at {pip_cmd}")
+        if not str(pip_cmd).startswith(str(self.worktree_path)):
+            raise CprojError(f"pip path {pip_cmd} is outside worktree {self.worktree_path}")
+
+        subprocess.run(
+            [str(pip_cmd), "install", "-r", "requirements.txt"],
+            cwd=self.worktree_path,
+            check=True,
+            capture_output=True,
+        )
 
     def setup_node(self, auto_install: bool = False) -> Dict:
         """Setup Node environment with nvm"""
@@ -2713,7 +2731,6 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
     def cmd_cleanup(self, args):
         """Cleanup worktrees"""
         repo_path = Path(self.config.get("repo_path", "."))
-
         if not repo_path.exists():
             print("No configured repository")
             return
@@ -2721,122 +2738,160 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         git = GitWorktree(repo_path)
         worktrees = git.list_worktrees()
 
-        # Interactive prompt for cleanup criteria if not specified and in interactive mode
-        if not any([args.older_than, getattr(args, "newer_than", None), args.merged_only]) and self._is_interactive():
+        # Handle interactive prompts if no criteria specified
+        if not self._has_cleanup_criteria(args) and self._is_interactive():
             active_worktrees = [wt for wt in worktrees if Path(wt["path"]) != repo_path]
             if not active_worktrees:
                 print("No worktrees to clean up.")
                 return
-
-            choice = self._show_cleanup_menu(active_worktrees, args)
-
-            if choice == "1":
-                self._handle_interactive_selection(active_worktrees, git, args)
+            if not self._handle_interactive_cleanup(active_worktrees, git, args):
                 return
-            elif choice == "2":
-                # Remove worktrees newer than X days
-                default_days = 7
-                days_input = input(f"Remove worktrees newer than how many days? [{default_days}]: ").strip()
-                try:
-                    newer_days = int(days_input) if days_input else default_days
-                    args.newer_than = newer_days
-                    logger.debug(f"Set args.newer_than to {args.newer_than}")
-                except ValueError:
-                    print("❌ Please enter a valid number")
-                    return
-            elif choice == "3":
-                # Remove worktrees older than X days
-                default_days = self.config.get("cleanup_days", 14)
-                days_input = input(f"Remove worktrees older than how many days? [{default_days}]: ").strip()
-                try:
-                    args.older_than = int(days_input) if days_input else default_days
-                except ValueError:
-                    print("❌ Please enter a valid number")
-                    return
-            elif choice == "4":
-                args.merged_only = True
-            elif choice == "5":
-                print("Cleanup cancelled")
-                return
-
-            print()
 
         logger.debug(
             f"Processing cleanup with filters - older_than: {args.older_than}, newer_than: "
             f"{getattr(args, 'newer_than', None)}, merged_only: {args.merged_only}"
         )
 
+        to_remove = self._find_worktrees_to_remove(worktrees, repo_path, args)
+        self._execute_worktree_removal(to_remove, git, args)
+
+    def _has_cleanup_criteria(self, args):
+        """Check if any cleanup criteria are specified"""
+        return any([args.older_than, getattr(args, "newer_than", None), args.merged_only])
+
+    def _handle_interactive_cleanup(self, active_worktrees, git, args):
+        """Handle interactive cleanup menu and return True to continue"""
+        choice = self._show_cleanup_menu(active_worktrees, args)
+
+        if choice == "1":
+            self._handle_interactive_selection(active_worktrees, git, args)
+            return False
+        elif choice == "2":
+            return self._set_newer_than_criteria(args)
+        elif choice == "3":
+            return self._set_older_than_criteria(args)
+        elif choice == "4":
+            args.merged_only = True
+            print()
+            return True
+        elif choice == "5":
+            print("Cleanup cancelled")
+            return False
+        return True
+
+    def _set_newer_than_criteria(self, args):
+        """Set newer_than criteria from user input"""
+        default_days = 7
+        days_input = input(f"Remove worktrees newer than how many days? [{default_days}]: ").strip()
+        try:
+            newer_days = int(days_input) if days_input else default_days
+            args.newer_than = newer_days
+            logger.debug(f"Set args.newer_than to {args.newer_than}")
+            print()
+            return True
+        except ValueError:
+            print("❌ Please enter a valid number")
+            return False
+
+    def _set_older_than_criteria(self, args):
+        """Set older_than criteria from user input"""
+        default_days = self.config.get("cleanup_days", 14)
+        days_input = input(f"Remove worktrees older than how many days? [{default_days}]: ").strip()
+        try:
+            args.older_than = int(days_input) if days_input else default_days
+            print()
+            return True
+        except ValueError:
+            print("❌ Please enter a valid number")
+            return False
+
+    def _find_worktrees_to_remove(self, worktrees, repo_path, args):
+        """Find worktrees that match removal criteria"""
         to_remove = []
         for wt in worktrees:
             path = Path(wt["path"])
             if path == repo_path:  # Skip main worktree
                 continue
 
-            should_remove = False
             logger.debug(f"Evaluating worktree: {path.name}")
-
-            # Define agent_json_path once for all checks
-            agent_json_path = path / ".cproj" / ".agent.json"
-
-            # Track individual criteria results for AND logic
-            age_matches = True  # Default to true if no age criteria
-            merged_matches = True  # Default to true if no merged criteria
-
-            # Check age criteria
-            if args.older_than:
-                age_matches = False  # Will be true only if age condition is met
-                if agent_json_path.exists():
-                    try:
-                        agent_json = AgentJson(path)
-                        created_at = datetime.fromisoformat(
-                            agent_json.data["workspace"]["created_at"].replace("Z", "+00:00")
-                        )
-                        age_days = (datetime.now(timezone.utc) - created_at).days
-                        if age_days > args.older_than:
-                            age_matches = True
-                    except (json.JSONDecodeError, KeyError, ValueError) as e:
-                        logger.debug(f"Error parsing date for {path}: {e}")
-
-            # Check for newer than (opposite logic)
-            if hasattr(args, "newer_than") and args.newer_than:
-                age_matches = False  # Will be true only if age condition is met
-                logger.debug(f"Checking newer_than condition for {path.name}")
-                if agent_json_path.exists():
-                    try:
-                        agent_json = AgentJson(path)
-                        created_at = datetime.fromisoformat(
-                            agent_json.data["workspace"]["created_at"].replace("Z", "+00:00")
-                        )
-                        age_days = (datetime.now(timezone.utc) - created_at).days
-                        logger.debug(f"{path.name} is {age_days} days old, newer_than={args.newer_than}")
-                        if age_days <= args.newer_than:
-                            age_matches = True
-                            logger.debug(f"Marking {path.name} for removal (newer than {args.newer_than} days)")
-                    except (OSError, ValueError) as e:
-                        logger.debug(f"Error processing {path.name}: {e}")
-
-            # Check if merged (proper JSON parsing)
-            if args.merged_only:
-                merged_matches = False  # Will be true only if merged condition is met
-                if agent_json_path.exists():
-                    try:
-                        agent_data = json.loads(agent_json_path.read_text())
-                        if "closed_at" in agent_data.get("workspace", {}):
-                            merged_matches = True
-                            logger.debug(f"Marking {path.name} for removal (marked as closed)")
-                    except (json.JSONDecodeError, KeyError) as e:
-                        logger.debug(f"Error parsing agent.json for merged check in {path.name}: {e}")
-
-            # Use AND logic - all specified criteria must be met
-            should_remove = age_matches and merged_matches
-
-            if should_remove:
+            if self._should_remove_worktree(path, args):
                 logger.debug(f"Adding {path.name} to removal list")
                 to_remove.append(wt)
             else:
                 logger.debug(f"Keeping {path.name}")
+        return to_remove
 
-        self._execute_worktree_removal(to_remove, git, args)
+    def _should_remove_worktree(self, path, args):
+        """Check if a worktree should be removed based on criteria"""
+        agent_json_path = path / ".cproj" / ".agent.json"
+
+        # Track individual criteria results for AND logic
+        age_matches = True  # Default to true if no age criteria
+        merged_matches = True  # Default to true if no merged criteria
+
+        # Check age criteria
+        if args.older_than:
+            age_matches = self._check_older_than(agent_json_path, path, args.older_than)
+
+        # Check for newer than (opposite logic)
+        if hasattr(args, "newer_than") and args.newer_than:
+            age_matches = self._check_newer_than(agent_json_path, path, args.newer_than)
+
+        # Check if merged
+        if args.merged_only:
+            merged_matches = self._check_merged_status(agent_json_path, path)
+
+        # Use AND logic - all specified criteria must be met
+        return age_matches and merged_matches
+
+    def _check_older_than(self, agent_json_path, path, older_than_days):
+        """Check if worktree is older than specified days"""
+        if not agent_json_path.exists():
+            return False
+        try:
+            agent_json = AgentJson(path)
+            created_at = datetime.fromisoformat(
+                agent_json.data["workspace"]["created_at"].replace("Z", "+00:00")
+            )
+            age_days = (datetime.now(timezone.utc) - created_at).days
+            return age_days > older_than_days
+        except (json.JSONDecodeError, KeyError, ValueError) as e:
+            logger.debug(f"Error parsing date for {path}: {e}")
+            return False
+
+    def _check_newer_than(self, agent_json_path, path, newer_than_days):
+        """Check if worktree is newer than specified days"""
+        logger.debug(f"Checking newer_than condition for {path.name}")
+        if not agent_json_path.exists():
+            return False
+        try:
+            agent_json = AgentJson(path)
+            created_at = datetime.fromisoformat(
+                agent_json.data["workspace"]["created_at"].replace("Z", "+00:00")
+            )
+            age_days = (datetime.now(timezone.utc) - created_at).days
+            logger.debug(f"{path.name} is {age_days} days old, newer_than={newer_than_days}")
+            if age_days <= newer_than_days:
+                logger.debug(f"Marking {path.name} for removal (newer than {newer_than_days} days)")
+                return True
+            return False
+        except (OSError, ValueError) as e:
+            logger.debug(f"Error processing {path.name}: {e}")
+            return False
+
+    def _check_merged_status(self, agent_json_path, path):
+        """Check if worktree is marked as merged/closed"""
+        if not agent_json_path.exists():
+            return False
+        try:
+            agent_data = json.loads(agent_json_path.read_text())
+            if "closed_at" in agent_data.get("workspace", {}):
+                logger.debug(f"Marking {path.name} for removal (marked as closed)")
+                return True
+            return False
+        except (json.JSONDecodeError, KeyError) as e:
+            logger.debug(f"Error parsing agent.json for merged check in {path.name}: {e}")
+            return False
 
     def cmd_open(self, args):
         """Open workspace"""
