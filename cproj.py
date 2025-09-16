@@ -50,9 +50,10 @@ class OnePasswordIntegration:
                 # Check if authenticated
                 subprocess.run(["op", "account", "list"], check=True,
                             capture_output=True, timeout=5)
-                return True
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
                 return False
+            else:
+                return True
 
     @staticmethod
     def get_secret(reference: str) -> Optional[str]:
@@ -702,10 +703,7 @@ class EnvironmentSetup:
         if not venv_path.exists() or not venv_path.is_dir():
             raise CprojError(f"Virtual environment not found at {venv_path}")
 
-        if platform.system() == "Windows":
-            pip_cmd = venv_path / "Scripts" / "pip.exe"
-        else:
-            pip_cmd = venv_path / "bin" / "pip"
+        pip_cmd = venv_path / "Scripts" / "pip.exe" if platform.system() == "Windows" else venv_path / "bin" / "pip"
 
         # Validate pip executable exists and is within expected path
         if not pip_cmd.exists():
@@ -891,7 +889,7 @@ class TerminalAutomation:
 
         try:
             subprocess.run([editor, str(path)], check=False)
-        except Exception as e:
+        except (subprocess.SubprocessError, OSError) as e:
             print(f"Failed to open editor: {e}")
 
 
@@ -2960,7 +2958,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                 subprocess.run(["open", url], check=False)
             else:
                 logger.warning(f"Refusing to open potentially unsafe URL: {url}")
-        except Exception:
+        except (subprocess.SubprocessError, OSError):
             logger.exception(f"Error opening URL {url}")
 
     def cmd_setup_claude(self, args):
@@ -2971,7 +2969,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         try:
             git_root = self._find_git_root(current_dir)
         except CprojError:
-            raise CprojError("Not in a git repository")
+            raise CprojError("Not in a git repository") from None
 
         # Get cproj's directory (template files)
         cproj_dir = Path(__file__).parent
@@ -3078,9 +3076,9 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
     def _merge_mcp_config_json(self, cproj_file, target_file):
         """Merge mcp_config.json files"""
         # Load both files
-        with open(cproj_file) as f:
+        with cproj_file.open() as f:
             cproj_config = json.load(f)
-        with open(target_file) as f:
+        with target_file.open() as f:
             target_config = json.load(f)
 
         # Merge MCP servers, preserving existing ones
@@ -3092,7 +3090,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             target_config["mcpServers"] = cproj_config["mcpServers"]
 
         # Write merged config
-        with open(target_file, "w") as f:
+        with target_file.open("w") as f:
             json.dump(target_config, f, indent=2)
 
     def cmd_config(self, args):
@@ -3284,7 +3282,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             print("❌ No reference provided")
             return
 
-    def cmd_linear_test(self, args):  # noqa: ARG002
+    def cmd_linear_test(self, args):
         """Test Linear integration"""
         print("🧪 Testing Linear Integration")
         print("-" * 40)
@@ -3309,7 +3307,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         print("\n💡 Basic configuration looks good!")
         print("📝 To fully test, try: add-ticket 'test ticket creation'")
 
-    def cmd_linear_status(self, args):  # noqa: ARG002
+    def cmd_linear_status(self, args):
         """Show Linear configuration status"""
         print("📊 Linear Integration Status")
         print("-" * 40)
