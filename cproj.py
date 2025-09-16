@@ -45,12 +45,14 @@ class OnePasswordIntegration:
         if not shutil.which("op"):
             return False
 
-        try:
-            # Check if authenticated
-            subprocess.run(["op", "account", "list"], check=True, capture_output=True, timeout=5)
-            return True
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-            return False
+        else:
+            try:
+                # Check if authenticated
+                subprocess.run(["op", "account", "list"], check=True,
+                            capture_output=True, timeout=5)
+                return True
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+                return False
 
     @staticmethod
     def get_secret(reference: str) -> Optional[str]:
@@ -1308,6 +1310,12 @@ class CprojCLI:
         open_parser = subparsers.add_parser("open", help="Open workspace")
         open_parser.add_argument("path", nargs="?", help="Worktree path")
 
+        # setup-claude command
+        setup_claude_parser = subparsers.add_parser("setup-claude",
+                                                   help="Setup workspace in current directory")
+        setup_claude_parser.add_argument("--force", action="store_true",
+                                        help="Force setup even if directory exists")
+
     def _add_config_commands(self, subparsers):
         """Add config command"""
         config_parser = subparsers.add_parser("config", help="Configuration")
@@ -1371,6 +1379,8 @@ class CprojCLI:
                 self.cmd_cleanup(parsed_args)
             elif parsed_args.command == "open":
                 self.cmd_open(parsed_args)
+            elif parsed_args.command == "setup-claude":
+                self.cmd_setup_claude(parsed_args)
             elif parsed_args.command == "config":
                 self.cmd_config(parsed_args)
             elif parsed_args.command == "linear":
@@ -2897,6 +2907,138 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                 logger.warning(f"Refusing to open potentially unsafe URL: {url}")
         except Exception:
             logger.exception(f"Error opening URL {url}")
+
+    def cmd_setup_claude(self, args):
+        """Setup workspace in current directory"""
+        current_dir = Path.cwd()
+
+        # Check if we're in a git repository
+        try:
+            git_root = self._find_git_root(current_dir)
+        except CprojError:
+            raise CprojError("Not in a git repository")
+
+        # Get cproj's directory (template files)
+        cproj_dir = Path(__file__).parent
+        cproj_claude_dir = cproj_dir / ".claude"
+        if not cproj_claude_dir.exists():
+            raise CprojError(f"cproj template directory not found: {cproj_claude_dir}")
+
+        # Check if directory exists in current location
+        claude_dir = current_dir / ".claude"
+
+        if claude_dir.exists():
+            print(f"🔍 Found existing directory in {current_dir}")
+            print("🔀 Merging cproj's template files with existing configuration...")
+            self._merge_claude_config_files(cproj_claude_dir, claude_dir)
+        else:
+            print(f"📂 Creating new directory in {current_dir}")
+
+            # Load project configuration to check if we should copy from main repo
+            try:
+                config = self._load_config()
+                main_repo_path = Path(config.get("repo_path", ""))
+
+                # If this is a worktree and main repo has directory, copy from there first
+                if (str(git_root) != str(main_repo_path) and
+                    main_repo_path.exists() and
+                    (main_repo_path / ".claude").exists()):
+
+                    print(f"📂 Copying project config from {main_repo_path}")
+                    shutil.copytree(main_repo_path / ".claude", claude_dir)
+                    print("🔀 Merging cproj's template files...")
+                    self._merge_claude_config_files(cproj_claude_dir, claude_dir)
+                else:
+                    # Copy cproj template directly
+                    shutil.copytree(cproj_claude_dir, claude_dir)
+                    print("📋 Copied cproj template files")
+
+            except CprojError:
+                # No cproj config, just copy template
+                shutil.copytree(cproj_claude_dir, claude_dir)
+                print("📋 Copied cproj template files")
+
+        print(f"✅ Workspace setup complete in {current_dir}")
+        print("💡 cproj commands and agents are now available")
+
+    def _merge_claude_config_files(self, cproj_claude_dir, target_claude_dir):
+        """Intelligently merge cproj's template files with existing project files"""
+
+        # Files that need special JSON merging
+        json_merge_files = {
+            "settings.local.json": self._merge_settings_json,
+            "mcp_config.json": self._merge_mcp_config_json
+        }
+
+        # Process each file in cproj's directory
+        for cproj_file in cproj_claude_dir.rglob("*"):
+            if cproj_file.is_file():
+                # Get relative path from directory
+                rel_path = cproj_file.relative_to(cproj_claude_dir)
+                target_file = target_claude_dir / rel_path
+
+                # Ensure target directory exists
+                target_file.parent.mkdir(parents=True, exist_ok=True)
+
+                # Check if this file needs special merging
+                if rel_path.name in json_merge_files:
+                    if target_file.exists():
+                        # Merge the files
+                        try:
+                            merge_func = json_merge_files[rel_path.name]
+                            merge_func(cproj_file, target_file)
+                            print(f"🔀 Merged {rel_path}")
+                        except Exception as e:
+                            print(f"⚠️  Could not merge {rel_path}, copying cproj version: {e}")
+                            shutil.copy2(cproj_file, target_file)
+                    else:
+                        # Just copy the cproj version
+                        shutil.copy2(cproj_file, target_file)
+                        print(f"📋 Copied {rel_path}")
+                else:
+                    # For non-JSON files, copy with potential overwrite
+                    if target_file.exists():
+                        print(f"📝 Updating {rel_path}")
+                    else:
+                        print(f"📋 Copied {rel_path}")
+                    shutil.copy2(cproj_file, target_file)
+
+    def _merge_settings_json(self, cproj_file, target_file):
+        """Merge settings.local.json files"""
+        # Load both files
+        with open(cproj_file) as f:
+            cproj_config = json.load(f)
+        with open(target_file) as f:
+            target_config = json.load(f)
+
+        # Merge cproj settings into target, preserving existing settings
+        for key, value in cproj_config.items():
+            if key not in target_config:
+                target_config[key] = value
+
+        # Write merged config
+        with open(target_file, "w") as f:
+            json.dump(target_config, f, indent=2)
+
+    def _merge_mcp_config_json(self, cproj_file, target_file):
+        """Merge mcp_config.json files"""
+        # Load both files
+        with open(cproj_file) as f:
+            cproj_config = json.load(f)
+        with open(target_file) as f:
+            target_config = json.load(f)
+
+        # Merge MCP servers, preserving existing ones
+        if "mcpServers" in cproj_config and "mcpServers" in target_config:
+            for server_name, server_config in cproj_config["mcpServers"].items():
+                if server_name not in target_config["mcpServers"]:
+                    target_config["mcpServers"][server_name] = server_config
+        elif "mcpServers" in cproj_config:
+            target_config["mcpServers"] = cproj_config["mcpServers"]
+
+        # Write merged config
+        with open(target_file, "w") as f:
+            json.dump(target_config, f, indent=2)
 
     def cmd_config(self, args):
         """Configuration management"""
