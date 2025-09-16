@@ -15,35 +15,41 @@ Transform high-level user input into a well-structured Linear ticket with compre
 
 **Important**: This command ONLY creates the ticket(s). It does not start implementation or modify any code.
 
-## Linear API Configuration
+## Linear MCP Integration
 
-Before creating tickets, this command needs access to the Linear API. The API key can be configured in several ways:
+This command uses the Linear MCP server with OAuth authentication to create tickets. The Linear MCP connection is established automatically through the workspace configuration.
 
-1. **From 1Password (Recommended)**:
-   - If the Linear API key is not found in the environment, prompt the user:
-     ```
-     "Linear API key not found. Would you like to retrieve it from 1Password? [y/N]"
-     ```
-   - If yes, prompt for the 1Password reference:
-     ```
-     "Enter 1Password reference (e.g., op://Private/linear-api-key/password):"
-     "Tip: In 1Password, right-click on the field and select 'Copy Secret Reference' to get this value"
-     ```
-   - Use `op read <reference>` to retrieve the key
-   - Store the reference in `.cproj/.linear-1password-ref` for future use
-   - On subsequent runs, automatically use the stored reference
+**Prerequisites**:
+- Linear MCP server must be running and authenticated via OAuth
+- Workspace must have Linear organization, team, and project configured in `.claude/workspace.json`
 
-2. **From Environment**:
-   - Check for `LINEAR_API_KEY` environment variable
-   - Check for `.env.linear` file in the project root
+## Linear Ticket Creation
 
-3. **Manual Entry**:
-   - If neither 1Password nor environment has the key, prompt:
-     ```
-     "Enter your Linear API key (or 'skip' to cancel):"
-     ```
+This command creates Linear tickets using the `mcp__linear-server__create_issue` tool with the following parameter mapping:
 
-**Security Note**: Never log or display the actual API key. Store references securely.
+**Required Parameters**:
+- `title`: Generated from user input and agent findings
+- `team`: Uses `linear.default_team` from workspace config, or prompts if not set
+
+**Optional Parameters**:
+- `description`: Comprehensive markdown description generated from agent research
+- `project`: Uses `linear.default_project` from workspace config if available
+- `labels`: Applied based on ticket type (e.g., "feature", "bug", "spike")
+- `priority`: Set to 3 (Normal) by default, unless user specifies urgency
+- `assignee`: Not set by default (tickets remain unassigned)
+- `state`: Uses default team state (typically "Todo" or "Backlog")
+
+**Workspace Configuration Access**:
+The command reads Linear settings from `.claude/workspace.json`:
+```json
+{
+  "linear": {
+    "org": "company-name",
+    "default_team": "TEAM-KEY",
+    "default_project": "PROJECT-ID"
+  }
+}
+```
 
 ## Core Agent Workflow
 
@@ -160,9 +166,32 @@ Findings from the three agents are synthesized into a comprehensive ticket.
 
 ### 4\) Smart Ticket Creation
 
-  - **If total estimated effort is ≤ 2 days**: A single, comprehensive ticket is created.
-  - **If total estimated effort is \> 2 days**: The work is automatically broken down into 2-3 smaller, interconnected tickets (e.g., "Part 1: Backend API," "Part 2: Frontend UI"), each with its own scope and estimate.
+**Single Ticket** (≤ 2 days estimated effort):
+- Use `mcp__linear-server__create_issue` to create one comprehensive ticket
+- Include all findings from the three agents in the description
+- Use workspace config values for `team` and `project`
+
+**Multiple Tickets** (> 2 days estimated effort):
+- Break down into 2-3 smaller tickets automatically
+- Create each ticket using `mcp__linear-server__create_issue`
+- Link tickets using the `parentId` parameter for sub-issues or reference in descriptions
+- Each ticket gets appropriate labels (e.g., "part-1", "part-2")
+
+**MCP Tool Parameters Used**:
+```json
+{
+  "title": "Generated title from agent findings",
+  "description": "Comprehensive markdown description with all agent insights",
+  "team": "workspace.linear.default_team",
+  "project": "workspace.linear.default_project",
+  "labels": ["feature", "researched"],
+  "priority": 3
+}
+```
 
 ### 5\) Output & Confirmation
 
-The command finishes by returning the URL(s) of the newly created ticket(s) in Linear.
+The command finishes by:
+1. Displaying the Linear ticket URL(s) from the MCP tool response
+2. Storing the Linear URL in the agent.json file (if using `--linear` flag)
+3. Confirming successful ticket creation with ticket numbers and links
