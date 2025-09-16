@@ -3085,9 +3085,9 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
     def _merge_settings_json(self, cproj_file, target_file):
         """Merge settings.local.json files"""
         # Load both files
-        with open(cproj_file) as f:
+        with cproj_file.open() as f:
             cproj_config = json.load(f)
-        with open(target_file) as f:
+        with target_file.open() as f:
             target_config = json.load(f)
 
         # Merge cproj settings into target, preserving existing settings
@@ -3096,7 +3096,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                 target_config[key] = value
 
         # Write merged config
-        with open(target_file, "w") as f:
+        with target_file.open("w") as f:
             json.dump(target_config, f, indent=2)
 
     def _merge_mcp_config_json(self, cproj_file, target_file):
