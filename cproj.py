@@ -2898,7 +2898,8 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             if age_days <= newer_than_days:
                 logger.debug(f"Marking {path.name} for removal (newer than {newer_than_days} days)")
                 return True
-            return False
+            else:
+                return False
         except (OSError, ValueError) as e:
             logger.debug(f"Error processing {path.name}: {e}")
             return False
@@ -2912,7 +2913,8 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             if "closed_at" in agent_data.get("workspace", {}):
                 logger.debug(f"Marking {path.name} for removal (marked as closed)")
                 return True
-            return False
+            else:
+                return False
         except (json.JSONDecodeError, KeyError) as e:
             logger.debug(f"Error parsing agent.json for merged check in {path.name}: {e}")
             return False
