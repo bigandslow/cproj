@@ -1,6 +1,6 @@
 # Makefile for cproj development and installation
 
-.PHONY: help install uninstall test lint format clean dev-install pipx-install
+.PHONY: help install uninstall test lint format clean dev-install pipx-install pre-commit
 
 # Default target
 help:
@@ -14,6 +14,7 @@ help:
 	@echo "  test         - Run tests"
 	@echo "  lint         - Run linting"
 	@echo "  format       - Format code"
+	@echo "  pre-commit   - Run pre-commit checks"
 	@echo "  clean        - Clean build artifacts"
 	@echo ""
 	@echo "For first-time users, run: make install"
@@ -41,6 +42,12 @@ pipx-install:
 dev-install:
 	@echo "Installing cproj in development mode..."
 	pip install -e .[dev]
+	@echo "Installing pre-commit hooks..."
+	@if command -v pre-commit >/dev/null 2>&1; then \
+		pre-commit install; \
+	else \
+		echo "pre-commit not found, install with: pip install pre-commit"; \
+	fi
 
 # Run tests
 test:
@@ -113,3 +120,12 @@ smoke-test:
 	@echo "Running smoke test..."
 	python3 cproj.py --help >/dev/null && echo "✅ cproj loads successfully" || echo "❌ cproj failed to load"
 	python3 cproj.py config --help >/dev/null && echo "✅ cproj config command works" || echo "❌ cproj config failed"
+
+# Run pre-commit checks
+pre-commit:
+	@echo "Running pre-commit checks..."
+	@if command -v pre-commit >/dev/null 2>&1; then \
+		pre-commit run --all-files; \
+	else \
+		echo "pre-commit not found, install with: pip install pre-commit"; \
+	fi
