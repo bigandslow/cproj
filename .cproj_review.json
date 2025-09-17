@@ -1,9 +1,9 @@
 {
-  "timestamp": "2025-09-06T18:16:40.060323",
-  "worktree": "/Users/cstrahorn/Documents/GitHub/cproj",
+  "timestamp": "2025-09-16T13:20:26.798370",
+  "worktree": "/Users/cstrahorn/.cache/cproj-workspaces/cproj_fix/self-review2_20250916_112623",
   "context": {
-    "pr_title": "Main",
-    "pr_desc": "Recent commits:\n4b356cb Address critical security vulnerabilities and code review feedback\nbeb2b78 Add professional AI-powered PR review agent system\ndc13f75 Simplify terminal window titles by removing branch prefixes\n9e98f78 Improve error messages for incorrect command syntax and missing .agent.json\nbd26b9a Fix .env file copying to search subdirectories\n1e1d997 Add shared venv and .env file support to cproj worktrees\n985ff85 Fix install script to work from any directory\nb757bdb Change default cproj behavior to open terminal but not IDE\n70ad4fe Improve interactive cleanup debugging and user feedback\n362cbce Implement interactive cleanup selection with current worktree protection",
+    "pr_title": "fix/self-review2",
+    "pr_desc": "Recent commits:\ne63d5e0 Add comprehensive CI/CD pipeline and development tooling\n186ceb1 Fix all test failures and remove Linear integration tests\n885d23e Add intelligent workspace setup with file merging\nf36dd9f Add interactive force removal prompts for dirty worktrees in cleanup\n2784703 Refactor cproj to use current working directory for project context\n1e4a349 Fix .cproj_review.json file location\n5b02231 Fix worktree creation to use current git repository\n7196ed9 Add proper logging system with configurable log levels\n5624430 Add --force flag and fix newer than cleanup logic\n5baff08 Organize worktree files in .cproj directory and improve cleanup menu",
     "ticket": "",
     "arch_notes": "Python/TypeScript monorepo, REST APIs, PostgreSQL, Docker, AWS",
     "conventions": "PEP8 for Python, ESLint/Prettier for JS/TS, conventional commits",

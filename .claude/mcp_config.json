@@ -1,16 +1,10 @@
 {
   "mcpServers": {
     "linear": {
-      "command": "npx",
+      "command": "bash",
       "args": [
-        "@linear/mcp-server"
-      ],
-      "env": {
-        "LINEAR_API_KEY": {
-          "description": "Linear API key for creating and managing tickets",
-          "required": true
-        }
-      }
+        ".claude/linear-mcp-wrapper.sh"
+      ]
     }
   }
 }

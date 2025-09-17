@@ -1,0 +1,38 @@
+{
+  "project_root": "/Users/cstrahorn/Documents/GitHub/cproj",
+  "worktree_path": "/Users/cstrahorn/.cache/cproj-workspaces/cproj_fix/self-review2_20250916_112623",
+  "linear": {
+    "org": "process-tangent-accounting",
+    "default_team": "PRO",
+    "default_project": null,
+    "api_key_file": ".env.linear"
+  },
+  "commands": {
+    "add-ticket": {
+      "description": "Create comprehensive Linear tickets using AI agents",
+      "agents": [
+        "product-manager",
+        "ux-designer",
+        "senior-software-engineer"
+      ],
+      "requires_mcp": [
+        "linear"
+      ]
+    },
+    "review-code": {
+      "description": "Run comprehensive AI-powered code review using specialized review agents",
+      "agents": [
+        "senior-developer",
+        "qa-engineer",
+        "security-reviewer"
+      ],
+      "requires_git": true
+    }
+  },
+  "agents": {
+    "product-manager": "Turn high-level asks into crisp PRDs",
+    "ux-designer": "Create clear, accessible, user-centric designs",
+    "senior-software-engineer": "Plan implementation with tests and docs",
+    "code-reviewer": "Review code for correctness and maintainability"
+  }
+}
