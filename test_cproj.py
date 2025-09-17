@@ -4,16 +4,15 @@ Test suite for cproj
 """
 
 import json
-import os
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 
 from cproj import (
-    Config, GitWorktree, AgentJson, EnvironmentSetup, 
-    TerminalAutomation, GitHubIntegration, CprojCLI, CprojError
+    Config, GitWorktree, AgentJson, EnvironmentSetup,
+    GitHubIntegration, CprojCLI
 )
 
 
