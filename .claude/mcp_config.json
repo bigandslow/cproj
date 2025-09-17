@@ -1,10 +1,8 @@
 {
   "mcpServers": {
     "linear": {
-      "command": "bash",
-      "args": [
-        ".claude/linear-mcp-wrapper.sh"
-      ]
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://mcp.linear.app/sse"]
     }
   }
 }
