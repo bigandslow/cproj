@@ -5,6 +5,7 @@ A production-ready CLI tool for managing parallel project work using Git worktre
 """
 
 import argparse
+import getpass
 import json
 import logging
 import os
@@ -12,11 +13,10 @@ import platform
 import shutil
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
-import tempfile
-import getpass
 
 # Setup logging
 logger = logging.getLogger("cproj")
@@ -114,12 +114,12 @@ class Config:
 
     def _load_config(self) -> Dict:
         if self.config_path.exists():
-            with open(self.config_path) as f:
+            with self.config_path.open() as f:
                 return json.load(f)
         return {}
 
     def save(self):
-        with open(self.config_path, "w") as f:
+        with self.config_path.open("w") as f:
             json.dump(self._config, f, indent=2)
 
     def get(self, key: str, default=None):
@@ -242,7 +242,8 @@ class GitWorktree:
                             continue
                 else:
                     raise CprojError(
-                        f"Branch '{branch}' is already checked out. Use --force to override or choose a different branch name."
+                        f"Branch '{branch}' is already checked out. "
+                        "Use --force to override or choose a different branch name."
                     )
 
             # Branch exists but not checked out, use it
@@ -400,12 +401,16 @@ class AgentJson:
         }
 
     def _load(self) -> Dict:
-        with open(self.path) as f:
-            return json.load(f)
+        try:
+            with self.path.open() as f:
+                return json.load(f)
+        except (json.JSONDecodeError, ValueError):
+            # Return default data if JSON is corrupted
+            return self._default_data()
 
     def save(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.path, "w") as f:
+        with self.path.open("w") as f:
             json.dump(self.data, f, indent=2)
 
     def set_project(self, name: str, repo_path: str):
@@ -583,7 +588,7 @@ class EnvironmentSetup:
         try:
             # Use node version from .nvmrc or LTS
             if nvmrc.exists():
-                with open(nvmrc) as f:
+                with nvmrc.open() as f:
                     node_version = f.read().strip()
             else:
                 node_version = "lts/*"
@@ -671,7 +676,7 @@ class EnvironmentSetup:
                     dest_file.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(source_file, dest_file)
                     print(f"Copied {rel_path} to worktree")
-                except (OSError, IOError) as e:
+                except OSError as e:
                     print(f"Warning: Failed to copy {rel_path}: {e}")
 
 
@@ -1628,7 +1633,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                 }
 
                 config_file = worktree_claude_dir / "workspace.json"
-                with open(config_file, "w") as f:
+                with config_file.open("w") as f:
                     json.dump(workspace_config, f, indent=2)
 
                 print("✅ Setup Claude workspace configuration")
@@ -1646,13 +1651,13 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
 
         # Check if pattern already exists
         if gitignore_path.exists():
-            with open(gitignore_path, "r") as f:
+            with gitignore_path.open() as f:
                 content = f.read()
                 if pattern in content:
                     return
 
         # Add pattern to .gitignore
-        with open(gitignore_path, "a") as f:
+        with gitignore_path.open("a") as f:
             if gitignore_path.exists() and not content.endswith("\n"):
                 f.write("\n")
             f.write("# Linear API key (added by cproj)\n")
@@ -1692,23 +1697,22 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                     branch_scheme.replace("{slug}", "bug-fix"),
                 ]
             )
+        # Generic suggestions based on common patterns
+        elif branch_scheme.startswith("feature/"):
+            suggestions.extend(
+                [
+                    f"feature/new-feature-{timestamp}",
+                    f"feature/improvement-{timestamp}",
+                ]
+            )
         else:
-            # Generic suggestions based on common patterns
-            if branch_scheme.startswith("feature/"):
-                suggestions.extend(
-                    [
-                        f"feature/new-feature-{timestamp}",
-                        f"feature/improvement-{timestamp}",
-                    ]
-                )
-            else:
-                suggestions.extend(
-                    [
-                        f"feature/new-feature-{timestamp}",
-                        f"fix/bug-fix-{timestamp}",
-                        f"dev/experiment-{timestamp}",
-                    ]
-                )
+            suggestions.extend(
+                [
+                    f"feature/new-feature-{timestamp}",
+                    f"fix/bug-fix-{timestamp}",
+                    f"dev/experiment-{timestamp}",
+                ]
+            )
 
         return suggestions[:3]  # Limit to 3 suggestions
 
@@ -1976,7 +1980,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             print("\n🤖 Running automated review agents...")
             try:
                 # Import and run agents
-                from claude_review_agents import setup_review, ProjectContext
+                from claude_review_agents import ProjectContext, setup_review
 
                 context = ProjectContext()
                 context.ticket = agent_json.data["links"].get("linear", "")
@@ -1996,7 +2000,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
     def cmd_review_agents(self, args):
         """Run automated review agents with security validation"""
         try:
-            from claude_review_agents import setup_review, ClaudeReviewOrchestrator, ProjectContext
+            from claude_review_agents import ClaudeReviewOrchestrator, ProjectContext, setup_review
         except ImportError as e:
             raise CprojError(f"Review agents module not available: {e}")
 
@@ -2042,7 +2046,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             config_path = orchestrator.save_review_config()
 
             if args.json:
-                with open(config_path, "r", encoding="utf-8") as f:
+                with config_path.open(encoding="utf-8") as f:
                     config = json.load(f)
                     print(json.dumps(config, indent=2))
             else:
@@ -2356,7 +2360,8 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                                         "is dirty" in error_msg or "--force" in error_msg
                                     ) and not args.force:
                                         print(
-                                            f"❌ Failed to remove {Path(wt['path']).name}: Worktree is dirty (has uncommitted changes)"
+                                            f"❌ Failed to remove {Path(wt['path']).name}: "
+                                            "Worktree is dirty (has uncommitted changes)"
                                         )
                                         if self._is_interactive():
                                             force_choice = (
@@ -2436,7 +2441,8 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             print()
 
         logger.debug(
-            f"Processing cleanup with filters - older_than: {args.older_than}, newer_than: {getattr(args, 'newer_than', None)}, merged_only: {args.merged_only}"
+            f"Processing cleanup with filters - older_than: {args.older_than}, "
+            f"newer_than: {getattr(args, 'newer_than', None)}, merged_only: {args.merged_only}"
         )
 
         to_remove = []
@@ -2585,23 +2591,22 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                         # Copy new file
                         shutil.copy2(cproj_file, target_file)
                         print(f"📋 Added {rel_path}")
+                # For non-JSON files, copy if not exists, otherwise skip to preserve project customizations
+                elif not target_file.exists():
+                    shutil.copy2(cproj_file, target_file)
+                    # Make shell scripts executable
+                    if rel_path.suffix == ".sh":
+                        target_file.chmod(target_file.stat().st_mode | 0o111)
+                    print(f"📋 Added {rel_path}")
                 else:
-                    # For non-JSON files, copy if not exists, otherwise skip to preserve project customizations
-                    if not target_file.exists():
-                        shutil.copy2(cproj_file, target_file)
-                        # Make shell scripts executable
-                        if rel_path.suffix == ".sh":
-                            target_file.chmod(target_file.stat().st_mode | 0o111)
-                        print(f"📋 Added {rel_path}")
-                    else:
-                        print(f"⏭️  Kept existing {rel_path}")
+                    print(f"⏭️  Kept existing {rel_path}")
 
     def _merge_settings_json(self, cproj_file, target_file):
         """Merge settings.local.json files, combining permissions"""
-        with open(cproj_file, "r") as f:
+        with cproj_file.open() as f:
             cproj_settings = json.load(f)
 
-        with open(target_file, "r") as f:
+        with target_file.open() as f:
             target_settings = json.load(f)
 
         # Merge permissions
@@ -2630,15 +2635,15 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             target_settings["permissions"] = cproj_settings["permissions"]
 
         # Write merged settings
-        with open(target_file, "w") as f:
+        with target_file.open("w") as f:
             json.dump(target_settings, f, indent=2)
 
     def _merge_mcp_config_json(self, cproj_file, target_file):
         """Merge mcp_config.json files, combining MCP servers"""
-        with open(cproj_file, "r") as f:
+        with cproj_file.open() as f:
             cproj_config = json.load(f)
 
-        with open(target_file, "r") as f:
+        with target_file.open() as f:
             target_config = json.load(f)
 
         # Merge mcpServers
@@ -2652,7 +2657,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                     target_config["mcpServers"][server_name] = server_config
 
         # Write merged config
-        with open(target_file, "w") as f:
+        with target_file.open("w") as f:
             json.dump(target_config, f, indent=2)
 
     def cmd_setup_claude(self, args):
@@ -2731,7 +2736,8 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             while parent != parent.parent:
                 if (parent / ".cproj" / ".agent.json").exists():
                     raise CprojError(
-                        f"Found .agent.json in parent directory: {parent}/.cproj\nRun command from worktree root or specify path with 'cproj open {parent}'"
+                        f"Found .agent.json in parent directory: {parent}/.cproj\n"
+                        f"Run command from worktree root or specify path with 'cproj open {parent}'"
                     )
                 parent = parent.parent
             raise CprojError("Not in a cproj worktree (no .agent.json found in .cproj directory)")
