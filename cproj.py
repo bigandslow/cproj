@@ -76,7 +76,7 @@ class OnePasswordIntegration:
 
     @staticmethod
     def store_secret(
-        title: str, value: str, vault: str = None
+        title: str, value: str, vault: Optional[str] = None
     ) -> Optional[str]:
         """Store secret in 1Password and return reference"""
         if not OnePasswordIntegration.is_available():
@@ -122,7 +122,7 @@ class OnePasswordIntegration:
                 or None
             )
             reference = OnePasswordIntegration.store_secret(
-                f"cproj-{secret_name}", secret_value, vault
+                f"cproj-{secret_name}", secret_value, vault or "Private"
             )
             if reference:
                 print(f"Stored in 1Password. Reference: {reference}")
@@ -358,7 +358,7 @@ class GitWorktree:
             ["worktree", "list", "--porcelain"], capture_output=True, text=True
         )
         worktrees = []
-        current_tree = {}
+        current_tree: Dict[str, str] = {}
 
         for line in result.stdout.strip().split("\n"):
             if line.startswith("worktree "):
@@ -370,9 +370,9 @@ class GitWorktree:
             elif line.startswith("branch "):
                 current_tree["branch"] = line.split("refs/heads/", 1)[1]
             elif line == "bare":
-                current_tree["bare"] = True
+                current_tree["bare"] = "True"
             elif line == "detached":
-                current_tree["detached"] = True
+                current_tree["detached"] = "True"
 
         if current_tree:
             worktrees.append(current_tree)
@@ -549,7 +549,7 @@ class EnvironmentSetup:
         self,
         auto_install: bool = False,
         shared_venv: bool = False,
-        repo_path: Path = None,
+        repo_path: Optional[Path] = None,
     ) -> Dict:
         """Setup Python environment with uv or venv"""
         env_data = {
@@ -783,7 +783,7 @@ class EnvironmentSetup:
 
         # Find all .env* files in the repo (including subdirectories)
         env_patterns = ["**/.env", "**/.env.*"]
-        found_files = []
+        found_files: List[Path] = []
 
         for pattern in env_patterns:
             found_files.extend(repo_path.glob(pattern))
@@ -1060,9 +1060,9 @@ class CprojCLI:
             "Auto-cleanup age threshold (days) [14]: "
         ).strip()
         try:
-            config["cleanup_days"] = int(cleanup_days) if cleanup_days else 14
+            config["cleanup_days"] = str(int(cleanup_days) if cleanup_days else 14)
         except ValueError:
-            config["cleanup_days"] = 14
+            config["cleanup_days"] = "14"
 
         print()
 
@@ -1071,25 +1071,25 @@ class CprojCLI:
         print("-" * 50)
 
         use_uv = input("Prefer uv for Python? [Y/n]: ").strip().lower()
-        config["python_prefer_uv"] = use_uv not in ["n", "no"]
+        config["python_prefer_uv"] = str(use_uv not in ["n", "no"])
 
         auto_install_python = (
             input("Auto-install Python dependencies? [Y/n]: ").strip().lower()
         )
-        config["python_auto_install"] = auto_install_python not in ["n", "no"]
+        config["python_auto_install"] = str(auto_install_python not in ["n", "no"])
 
         use_nvm = input("Use nvm for Node? [Y/n]: ").strip().lower()
-        config["node_use_nvm"] = use_nvm not in ["n", "no"]
+        config["node_use_nvm"] = str(use_nvm not in ["n", "no"])
 
         auto_install_node = (
             input("Auto-install Node dependencies? [Y/n]: ").strip().lower()
         )
-        config["node_auto_install"] = auto_install_node not in ["n", "no"]
+        config["node_auto_install"] = str(auto_install_node not in ["n", "no"])
 
         auto_build_java = (
             input("Auto-build Java projects? [y/N]: ").strip().lower()
         )
-        config["java_auto_build"] = auto_build_java in ["y", "yes"]
+        config["java_auto_build"] = str(auto_build_java in ["y", "yes"])
 
         print()
 
@@ -1140,14 +1140,14 @@ class CprojCLI:
             "Default GitHub reviewers (comma-separated, optional): "
         ).strip()
         if github_default_reviewers:
-            config["github_reviewers"] = [
+            config["github_reviewers"] = ",".join([
                 r.strip() for r in github_default_reviewers.split(",")
-            ]
+            ])
 
         draft_prs = (
             input("Create draft PRs by default? [y/N]: ").strip().lower()
         )
-        config["github_draft_default"] = draft_prs in ["y", "yes"]
+        config["github_draft_default"] = str(draft_prs in ["y", "yes"])
 
         print()
 
@@ -1205,7 +1205,7 @@ class CprojCLI:
             use_1password = (
                 input("Use 1Password for secrets? [Y/n]: ").strip().lower()
             )
-            config["use_1password"] = use_1password not in ["n", "no"]
+            config["use_1password"] = str(use_1password not in ["n", "no"])
 
             if config.get("use_1password"):
                 vault = input("Default 1Password vault [Private]: ").strip()
@@ -1597,11 +1597,11 @@ class CprojCLI:
         python_uv = (
             input("Prefer uv for Python environments? [Y/n]: ").strip().lower()
         )
-        config["python_prefer_uv"] = python_uv != "n"
+        config["python_prefer_uv"] = str(python_uv != "n")
 
         # Node preferences
         node_nvm = input("Use nvm for Node.js? [Y/n]: ").strip().lower()
-        config["node_use_nvm"] = node_nvm != "n"
+        config["node_use_nvm"] = str(node_nvm != "n")
 
         # Optional integrations
         print()
@@ -1618,9 +1618,9 @@ class CprojCLI:
             "GitHub default reviewers (comma-separated, optional): "
         ).strip()
         if github_reviewers:
-            config["github_reviewers"] = [
+            config["github_reviewers"] = ",".join([
                 r.strip() for r in github_reviewers.split(",")
-            ]
+            ])
 
         return config
 

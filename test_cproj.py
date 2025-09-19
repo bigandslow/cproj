@@ -483,10 +483,10 @@ class TestCleanupDirtyWorktree(unittest.TestCase):
             # Make the worktree dirty by adding a file
             (worktree_path / "dirty_file.txt").write_text("uncommitted change")
 
-            # Mock user inputs: cleanup method selection, don't remove current,
-            # select test worktree, confirm removal, force removal
-            # Method 1, skip current repo, select test_worktree, confirm, force
-            mock_input.side_effect = ["1", "n", "y", "y", "y"]
+            # Mock user inputs: cleanup method selection, skip current worktree,
+            # select test_worktree, confirm selection, confirm removal, force removal
+            # Method 1, n for current, y for test_worktree, y to confirm, y to remove
+            mock_input.side_effect = ["1", "n", "y", "y", "y", "y"]
 
             # Create args for cleanup with --force=False so it will prompt
             from types import SimpleNamespace
