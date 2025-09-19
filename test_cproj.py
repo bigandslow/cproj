@@ -345,8 +345,7 @@ class TestClaudeIntegration(unittest.TestCase):
         worktree_cursorrules = worktree_path / ".cursorrules"
         self.assertFalse(worktree_cursorrules.exists())
 
-    @patch("pathlib.Path.exists")
-    def test_nvm_setup_script_creation(self, mock_exists):
+    def test_nvm_setup_script_creation(self):
         """Test nvm setup script creation"""
         cli = CprojCLI()
         cli.config.set("claude_nvm_default", "yes")
@@ -357,19 +356,18 @@ class TestClaudeIntegration(unittest.TestCase):
         # Mock node environment with nvm
         node_env = {"manager": "nvm"}
 
-        # Mock nvm path existence check to return True
-        # This will make the method think nvm is installed
-        def mock_exists_side_effect(path_self):
-            if str(path_self).endswith(".nvm/nvm.sh"):
-                return True
-            return path_self.exists.__wrapped__(path_self)
+        # Create a fake nvm.sh file to simulate nvm installation
+        fake_nvm_dir = self.temp_dir / ".nvm"
+        fake_nvm_dir.mkdir()
+        fake_nvm_script = fake_nvm_dir / "nvm.sh"
+        fake_nvm_script.write_text("# fake nvm script")
 
-        mock_exists.side_effect = mock_exists_side_effect
-
-        # Mock interactive mode to be False so it doesn't prompt
-        with patch.object(cli, "_is_interactive", return_value=False):
-            # Test the nvm setup method
-            cli._setup_nvm_for_claude(worktree_path, node_env)
+        # Mock Path.home() to return our temp directory so nvm check finds our fake nvm
+        with patch("pathlib.Path.home", return_value=self.temp_dir):
+            # Mock interactive mode to be False so it doesn't prompt
+            with patch.object(cli, "_is_interactive", return_value=False):
+                # Test the nvm setup method
+                cli._setup_nvm_for_claude(worktree_path, node_env)
 
         # Verify setup script was created
         setup_script = worktree_path / ".cproj" / "setup-claude.sh"
