@@ -1453,6 +1453,12 @@ export NVM_DIR="$HOME/.nvm"
 nvm use --lts
 
 echo "✅ Node.js LTS activated. You can now run 'claude' command."
+
+# Setup Linear MCP
+echo "🔗 Setting up Linear MCP..."
+claude mcp add --transport sse linear-server https://mcp.linear.app/sse
+echo "✅ Linear MCP configured."
+
 echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new terminal in this directory"
 """
                 setup_script.write_text(script_content)
