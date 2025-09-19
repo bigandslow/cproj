@@ -345,7 +345,8 @@ class TestClaudeIntegration(unittest.TestCase):
         worktree_cursorrules = worktree_path / ".cursorrules"
         self.assertFalse(worktree_cursorrules.exists())
 
-    def test_nvm_setup_script_creation(self):
+    @patch("pathlib.Path.exists")
+    def test_nvm_setup_script_creation(self, mock_exists):
         """Test nvm setup script creation"""
         cli = CprojCLI()
         cli.config.set("claude_nvm_default", "yes")
@@ -356,8 +357,19 @@ class TestClaudeIntegration(unittest.TestCase):
         # Mock node environment with nvm
         node_env = {"manager": "nvm"}
 
-        # Test the nvm setup method
-        cli._setup_nvm_for_claude(worktree_path, node_env)
+        # Mock nvm path existence check to return True
+        # This will make the method think nvm is installed
+        def mock_exists_side_effect(path_self):
+            if str(path_self).endswith(".nvm/nvm.sh"):
+                return True
+            return path_self.exists.__wrapped__(path_self)
+
+        mock_exists.side_effect = mock_exists_side_effect
+
+        # Mock interactive mode to be False so it doesn't prompt
+        with patch.object(cli, "_is_interactive", return_value=False):
+            # Test the nvm setup method
+            cli._setup_nvm_for_claude(worktree_path, node_env)
 
         # Verify setup script was created
         setup_script = worktree_path / ".cproj" / "setup-claude.sh"
@@ -465,10 +477,10 @@ class TestCleanupDirtyWorktree(unittest.TestCase):
             # Make the worktree dirty by adding a file
             (worktree_path / "dirty_file.txt").write_text("uncommitted change")
 
-            # Mock user inputs: cleanup method selection, skip current worktree,
-            # select test_worktree, confirm selection, confirm removal, force removal
-            # Method 1, n for current, y for test_worktree, y to confirm, y to remove
-            mock_input.side_effect = ["1", "n", "y", "y", "y", "y"]
+            # Mock user inputs: cleanup method selection, select test_worktree,
+            # confirm selection, confirm removal, force removal
+            # Use enough inputs to handle both single and multi-worktree scenarios
+            mock_input.side_effect = ["1", "y", "y", "y", "y", "y"]
 
             # Create args for cleanup with --force=False so it will prompt
             from types import SimpleNamespace
