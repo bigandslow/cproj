@@ -75,9 +75,7 @@ class OnePasswordIntegration:
             return None
 
     @staticmethod
-    def store_secret(
-        title: str, value: str, vault: Optional[str] = None
-    ) -> Optional[str]:
+    def store_secret(title: str, value: str, vault: Optional[str] = None) -> Optional[str]:
         """Store secret in 1Password and return reference"""
         if not OnePasswordIntegration.is_available():
             return None
@@ -94,9 +92,7 @@ class OnePasswordIntegration:
                 cmd.append(f"--vault={vault}")
             cmd.append(f"password={value}")
 
-            subprocess.run(
-                cmd, capture_output=True, text=True, check=True, timeout=10
-            )
+            subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=10)
             # Extract reference from output (simplified)
             return f"op://{vault or 'Private'}/{title}/password"
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
@@ -106,21 +102,12 @@ class OnePasswordIntegration:
     def prompt_for_secret(prompt_text: str, secret_name: str) -> Optional[str]:
         """Prompt user for secret and optionally store in 1Password"""
         if OnePasswordIntegration.is_available():
-            store_choice = (
-                input(f"Store {secret_name} in 1Password? [y/N]: ")
-                .lower()
-                .strip()
-            )
+            store_choice = input(f"Store {secret_name} in 1Password? [y/N]: ").lower().strip()
 
         secret_value = getpass.getpass(f"{prompt_text}: ")
 
         if OnePasswordIntegration.is_available() and store_choice == "y":
-            vault = (
-                input(
-                    "1Password vault name (or press Enter for Private): "
-                ).strip()
-                or None
-            )
+            vault = input("1Password vault name (or press Enter for Private): ").strip() or None
             reference = OnePasswordIntegration.store_secret(
                 f"cproj-{secret_name}", secret_value, vault or "Private"
             )
@@ -135,9 +122,7 @@ class Config:
     """Configuration management"""
 
     def __init__(self, config_path: Optional[Path] = None):
-        self.config_path = (
-            config_path or Path.home() / ".config" / "cproj" / "config.json"
-        )
+        self.config_path = config_path or Path.home() / ".config" / "cproj" / "config.json"
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
         self._config = self._load_config()
 
@@ -188,10 +173,7 @@ class GitWorktree:
             try:
                 self._run_git(["branch", base_branch, f"origin/{base_branch}"])
             except subprocess.CalledProcessError:
-                raise CprojError(
-                    f"Base branch '{base_branch}' not found locally or on "
-                    f"origin"
-                )
+                raise CprojError(f"Base branch '{base_branch}' not found locally or on " f"origin")
 
         # Fast-forward the base branch
         current_branch = self._get_current_branch()
@@ -209,9 +191,7 @@ class GitWorktree:
     def branch_exists(self, branch: str) -> bool:
         """Check if a branch exists"""
         try:
-            self._run_git(
-                ["show-ref", "--verify", "--quiet", f"refs/heads/{branch}"]
-            )
+            self._run_git(["show-ref", "--verify", "--quiet", f"refs/heads/{branch}"])
             return True
         except subprocess.CalledProcessError:
             return False
@@ -229,9 +209,7 @@ class GitWorktree:
             for line in result.stdout.strip().split("\n"):
                 if line.startswith("branch "):
                     current_branch = (
-                        line.split("refs/heads/", 1)[1]
-                        if "refs/heads/" in line
-                        else None
+                        line.split("refs/heads/", 1)[1] if "refs/heads/" in line else None
                     )
                     if current_branch == branch:
                         return True
@@ -254,25 +232,17 @@ class GitWorktree:
             # Check if it's already checked out somewhere
             if self.is_branch_checked_out(branch):
                 if interactive:
-                    print(
-                        f"⚠️  Branch '{branch}' is already checked out in "
-                        f"another worktree."
-                    )
+                    print(f"⚠️  Branch '{branch}' is already checked out in " f"another worktree.")
                     print("\nOptions:")
                     print("  1. Create worktree with a different branch name")
-                    print(
-                        "  2. Switch to existing worktree (if you know where "
-                        "it is)"
-                    )
+                    print("  2. Switch to existing worktree (if you know where " "it is)")
                     print("  3. Force create worktree (may cause issues)")
                     print("  4. Cancel")
 
                     while True:
                         choice = input("Choose option [1-4]: ").strip()
                         if choice == "1":
-                            new_branch = input(
-                                "Enter new branch name: "
-                            ).strip()
+                            new_branch = input("Enter new branch name: ").strip()
                             if new_branch:
                                 branch = new_branch
                                 break
@@ -299,13 +269,9 @@ class GitWorktree:
                                 )
                                 return worktree_path
                             except subprocess.CalledProcessError as e:
-                                raise CprojError(
-                                    f"Failed to force create worktree: {e}"
-                                )
+                                raise CprojError(f"Failed to force create worktree: {e}")
                         elif choice == "4":
-                            raise CprojError(
-                                "Worktree creation cancelled by user"
-                            )
+                            raise CprojError("Worktree creation cancelled by user")
                         else:
                             print("❌ Please enter 1, 2, 3, or 4")
                             continue
@@ -321,8 +287,7 @@ class GitWorktree:
                 self._run_git(["worktree", "add", str(worktree_path), branch])
             except subprocess.CalledProcessError as e:
                 raise CprojError(
-                    f"Failed to create worktree with existing branch "
-                    f"'{branch}': {e}"
+                    f"Failed to create worktree with existing branch " f"'{branch}': {e}"
                 )
         else:
             # Branch doesn't exist, create it
@@ -338,9 +303,7 @@ class GitWorktree:
                     ]
                 )
             except subprocess.CalledProcessError as e:
-                raise CprojError(
-                    f"Failed to create new branch '{branch}': {e}"
-                )
+                raise CprojError(f"Failed to create new branch '{branch}': {e}")
 
         return worktree_path
 
@@ -354,9 +317,7 @@ class GitWorktree:
 
     def list_worktrees(self) -> List[Dict]:
         """List all worktrees"""
-        result = self._run_git(
-            ["worktree", "list", "--porcelain"], capture_output=True, text=True
-        )
+        result = self._run_git(["worktree", "list", "--porcelain"], capture_output=True, text=True)
         worktrees = []
         current_tree: Dict[str, str] = {}
 
@@ -424,9 +385,7 @@ class GitWorktree:
     def _get_current_branch(self) -> Optional[str]:
         """Get current branch name"""
         try:
-            result = self._run_git(
-                ["branch", "--show-current"], capture_output=True, text=True
-            )
+            result = self._run_git(["branch", "--show-current"], capture_output=True, text=True)
             return result.stdout.strip() or None
         except subprocess.CalledProcessError:
             return None
@@ -466,9 +425,7 @@ class AgentJson:
         cproj_dir.mkdir(exist_ok=True)
 
         self.path = cproj_dir / ".agent.json"
-        self.data = (
-            self._load() if self.path.exists() else self._default_data()
-        )
+        self.data = self._load() if self.path.exists() else self._default_data()
 
     def _default_data(self) -> Dict:
         return {
@@ -517,9 +474,7 @@ class AgentJson:
         self.data["workspace"]["path"] = path
         self.data["workspace"]["branch"] = branch
         self.data["workspace"]["base"] = base
-        self.data["workspace"]["created_at"] = datetime.now(
-            timezone.utc
-        ).isoformat()
+        self.data["workspace"]["created_at"] = datetime.now(timezone.utc).isoformat()
 
     def set_link(self, link_type: str, url: str):
         if link_type in self.data["links"]:
@@ -530,9 +485,7 @@ class AgentJson:
             self.data["env"][env_type].update(env_data)
 
     def close_workspace(self):
-        self.data["workspace"]["closed_at"] = datetime.now(
-            timezone.utc
-        ).isoformat()
+        self.data["workspace"]["closed_at"] = datetime.now(timezone.utc).isoformat()
 
     @staticmethod
     def _get_version() -> str:
@@ -561,9 +514,7 @@ class EnvironmentSetup:
 
         # Check for project files in root and common subdirectories
         pyproject_paths = list(self.worktree_path.glob("**/pyproject.toml"))
-        requirements_paths = list(
-            self.worktree_path.glob("**/requirements.txt")
-        )
+        requirements_paths = list(self.worktree_path.glob("**/requirements.txt"))
 
         # Filter out common non-project directories
         exclude_dirs = {
@@ -576,14 +527,10 @@ class EnvironmentSetup:
             "build",
         }
         pyproject_paths = [
-            p
-            for p in pyproject_paths
-            if not any(ex in p.parts for ex in exclude_dirs)
+            p for p in pyproject_paths if not any(ex in p.parts for ex in exclude_dirs)
         ]
         requirements_paths = [
-            p
-            for p in requirements_paths
-            if not any(ex in p.parts for ex in exclude_dirs)
+            p for p in requirements_paths if not any(ex in p.parts for ex in exclude_dirs)
         ]
 
         pyproject_exists = len(pyproject_paths) > 0
@@ -600,9 +547,7 @@ class EnvironmentSetup:
             # Search for .venv in repo root and common subdirectories
             venv_search_paths = [
                 repo_path / ".venv",
-                repo_path
-                / "bankrec"
-                / ".venv",  # Common pattern in your repos
+                repo_path / "bankrec" / ".venv",  # Common pattern in your repos
                 *list(repo_path.glob("*/.venv")),  # Any direct subdirectory
             ]
 
@@ -629,15 +574,10 @@ class EnvironmentSetup:
                             worktree_venv.unlink()
                         else:
                             shutil.rmtree(worktree_venv)
-                    worktree_venv.symlink_to(
-                        main_venv, target_is_directory=True
-                    )
+                    worktree_venv.symlink_to(main_venv, target_is_directory=True)
                     env_data["manager"] = "shared"
                     env_data["active"] = True
-                    print(
-                        f"Created shared venv link: {worktree_venv} -> "
-                        f"{main_venv}"
-                    )
+                    print(f"Created shared venv link: {worktree_venv} -> " f"{main_venv}")
                     return env_data
                 except (OSError, subprocess.CalledProcessError) as e:
                     print(f"Warning: Failed to create shared venv: {e}")
@@ -692,9 +632,7 @@ class EnvironmentSetup:
             if auto_install and requirements_exists:
                 pip_cmd = str(self.worktree_path / ".venv" / "bin" / "pip")
                 if platform.system() == "Windows":
-                    pip_cmd = str(
-                        self.worktree_path / ".venv" / "Scripts" / "pip.exe"
-                    )
+                    pip_cmd = str(self.worktree_path / ".venv" / "Scripts" / "pip.exe")
 
                 subprocess.run(
                     [pip_cmd, "install", "-r", "requirements.txt"],
@@ -759,10 +697,7 @@ class EnvironmentSetup:
                 except (subprocess.CalledProcessError, FileNotFoundError):
                     pass
 
-        elif any(
-            (self.worktree_path / f).exists()
-            for f in ["build.gradle", "build.gradle.kts"]
-        ):
+        elif any((self.worktree_path / f).exists() for f in ["build.gradle", "build.gradle.kts"]):
             env_data["build"] = "gradle"
             if auto_build:
                 try:
@@ -861,9 +796,7 @@ class TerminalAutomation:
             """
 
         try:
-            subprocess.run(
-                ["osascript", "-e", script], check=True, capture_output=True
-            )
+            subprocess.run(["osascript", "-e", script], check=True, capture_output=True)
         except subprocess.CalledProcessError as e:
             print(f"Failed to open terminal: {e}")
 
@@ -894,9 +827,7 @@ class GitHubIntegration:
 
         try:
             # Check if already authenticated
-            subprocess.run(
-                ["gh", "auth", "status"], check=True, capture_output=True
-            )
+            subprocess.run(["gh", "auth", "status"], check=True, capture_output=True)
             return True
         except subprocess.CalledProcessError:
             # Not authenticated, try to auth
@@ -904,8 +835,7 @@ class GitHubIntegration:
 
             # Check if token available in 1Password
             token_ref = input(
-                "1Password GitHub token reference (or press Enter to login "
-                "interactively): "
+                "1Password GitHub token reference (or press Enter to login " "interactively): "
             ).strip()
 
             if token_ref and OnePasswordIntegration.is_available():
@@ -955,9 +885,7 @@ class GitHubIntegration:
             cmd.extend(["--assignee", ",".join(assignees)])
 
         try:
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, check=True
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
             return result.stdout.strip()
         except subprocess.CalledProcessError:
             return None
@@ -1004,9 +932,7 @@ class CprojCLI:
         config["project_name"] = project_name or "My Project"
 
         # Repository
-        repo_input = input(
-            "Repository path or URL (. for current directory): "
-        ).strip()
+        repo_input = input("Repository path or URL (. for current directory): ").strip()
         if repo_input == "." or not repo_input:
             repo_path = Path.cwd()
             # If we're in a subdirectory of a git repo, find the root
@@ -1016,14 +942,8 @@ class CprojCLI:
                 print(f"Found git repository root at: {repo_path}")
         elif repo_input.startswith("http"):
             # It's a URL, we'll clone it
-            clone_to = input(
-                f"Clone to directory [{Path.home() / 'dev' / project_name}]: "
-            ).strip()
-            repo_path = (
-                Path(clone_to)
-                if clone_to
-                else (Path.home() / "dev" / project_name)
-            )
+            clone_to = input(f"Clone to directory [{Path.home() / 'dev' / project_name}]: ").strip()
+            repo_path = Path(clone_to) if clone_to else (Path.home() / "dev" / project_name)
             config["clone_url"] = repo_input
         else:
             repo_path = Path(repo_input).expanduser().absolute()
@@ -1046,19 +966,13 @@ class CprojCLI:
         print("-" * 50)
 
         default_temp = str(Path.home() / ".cache" / "cproj-workspaces")
-        temp_root = input(
-            f"Temp root for worktrees [{default_temp}]: "
-        ).strip()
+        temp_root = input(f"Temp root for worktrees [{default_temp}]: ").strip()
         config["temp_root"] = temp_root or default_temp
 
-        branch_scheme = input(
-            "Branch naming scheme [feature/{ticket}-{slug}]: "
-        ).strip()
+        branch_scheme = input("Branch naming scheme [feature/{ticket}-{slug}]: ").strip()
         config["branch_scheme"] = branch_scheme or "feature/{ticket}-{slug}"
 
-        cleanup_days = input(
-            "Auto-cleanup age threshold (days) [14]: "
-        ).strip()
+        cleanup_days = input("Auto-cleanup age threshold (days) [14]: ").strip()
         try:
             config["cleanup_days"] = str(int(cleanup_days) if cleanup_days else 14)
         except ValueError:
@@ -1073,22 +987,16 @@ class CprojCLI:
         use_uv = input("Prefer uv for Python? [Y/n]: ").strip().lower()
         config["python_prefer_uv"] = str(use_uv not in ["n", "no"])
 
-        auto_install_python = (
-            input("Auto-install Python dependencies? [Y/n]: ").strip().lower()
-        )
+        auto_install_python = input("Auto-install Python dependencies? [Y/n]: ").strip().lower()
         config["python_auto_install"] = str(auto_install_python not in ["n", "no"])
 
         use_nvm = input("Use nvm for Node? [Y/n]: ").strip().lower()
         config["node_use_nvm"] = str(use_nvm not in ["n", "no"])
 
-        auto_install_node = (
-            input("Auto-install Node dependencies? [Y/n]: ").strip().lower()
-        )
+        auto_install_node = input("Auto-install Node dependencies? [Y/n]: ").strip().lower()
         config["node_auto_install"] = str(auto_install_node not in ["n", "no"])
 
-        auto_build_java = (
-            input("Auto-build Java projects? [y/N]: ").strip().lower()
-        )
+        auto_build_java = input("Auto-build Java projects? [y/N]: ").strip().lower()
         config["java_auto_build"] = str(auto_build_java in ["y", "yes"])
 
         print()
@@ -1124,15 +1032,11 @@ class CprojCLI:
             config["linear_org"] = linear_org
 
             # Get Linear team and project info
-            linear_team = input(
-                "Default Linear team ID/key (optional): "
-            ).strip()
+            linear_team = input("Default Linear team ID/key (optional): ").strip()
             if linear_team:
                 config["linear_default_team"] = linear_team
 
-            linear_project = input(
-                "Default Linear project ID (optional): "
-            ).strip()
+            linear_project = input("Default Linear project ID (optional): ").strip()
             if linear_project:
                 config["linear_default_project"] = linear_project
 
@@ -1140,13 +1044,11 @@ class CprojCLI:
             "Default GitHub reviewers (comma-separated, optional): "
         ).strip()
         if github_default_reviewers:
-            config["github_reviewers"] = ",".join([
-                r.strip() for r in github_default_reviewers.split(",")
-            ])
+            config["github_reviewers"] = ",".join(
+                [r.strip() for r in github_default_reviewers.split(",")]
+            )
 
-        draft_prs = (
-            input("Create draft PRs by default? [y/N]: ").strip().lower()
-        )
+        draft_prs = input("Create draft PRs by default? [y/N]: ").strip().lower()
         config["github_draft_default"] = str(draft_prs in ["y", "yes"])
 
         print()
@@ -1156,40 +1058,25 @@ class CprojCLI:
         print("-" * 50)
 
         claude_symlink = (
-            input(
-                "Auto-create CLAUDE.md/.cursorrules symlinks in worktrees? "
-                "[Y/n]: "
-            )
+            input("Auto-create CLAUDE.md/.cursorrules symlinks in worktrees? " "[Y/n]: ")
             .strip()
             .lower()
         )
-        config["claude_symlink_default"] = (
-            "no" if claude_symlink in ["n", "no"] else "yes"
-        )
+        config["claude_symlink_default"] = "no" if claude_symlink in ["n", "no"] else "yes"
 
         claude_nvm = (
-            input(
-                "Auto-create nvm setup scripts for Claude CLI in "
-                "worktrees? [Y/n]: "
-            )
+            input("Auto-create nvm setup scripts for Claude CLI in " "worktrees? [Y/n]: ")
             .strip()
             .lower()
         )
-        config["claude_nvm_default"] = (
-            "no" if claude_nvm in ["n", "no"] else "yes"
-        )
+        config["claude_nvm_default"] = "no" if claude_nvm in ["n", "no"] else "yes"
 
         claude_workspace = (
-            input(
-                "Auto-setup Claude workspace with commands and agents in "
-                "worktrees? [Y/n]: "
-            )
+            input("Auto-setup Claude workspace with commands and agents in " "worktrees? [Y/n]: ")
             .strip()
             .lower()
         )
-        config["claude_workspace_default"] = (
-            "no" if claude_workspace in ["n", "no"] else "yes"
-        )
+        config["claude_workspace_default"] = "no" if claude_workspace in ["n", "no"] else "yes"
 
         print()
 
@@ -1198,13 +1085,10 @@ class CprojCLI:
             print("🔐 1Password Integration")
             print("-" * 50)
             print(
-                "1Password CLI detected! You can store GitHub tokens and "
-                "other secrets securely."
+                "1Password CLI detected! You can store GitHub tokens and " "other secrets securely."
             )
 
-            use_1password = (
-                input("Use 1Password for secrets? [Y/n]: ").strip().lower()
-            )
+            use_1password = input("Use 1Password for secrets? [Y/n]: ").strip().lower()
             config["use_1password"] = str(use_1password not in ["n", "no"])
 
             if config.get("use_1password"):
@@ -1228,10 +1112,7 @@ class CprojCLI:
         if config.get("github_reviewers"):
             print(f"GitHub reviewers: {', '.join(config['github_reviewers'])}")
         if config.get("use_1password"):
-            print(
-                f"1Password: enabled (vault: "
-                f"{config.get('onepassword_vault')})"
-            )
+            print(f"1Password: enabled (vault: " f"{config.get('onepassword_vault')})")
 
         print()
 
@@ -1244,9 +1125,7 @@ class CprojCLI:
 
     def create_parser(self) -> argparse.ArgumentParser:
         """Create argument parser"""
-        parser = argparse.ArgumentParser(
-            description="Multi-project CLI with git worktree + uv"
-        )
+        parser = argparse.ArgumentParser(description="Multi-project CLI with git worktree + uv")
         parser.add_argument("--repo", help="Repository path")
         parser.add_argument("--base", help="Base branch")
         parser.add_argument("--temp-root", help="Temp root for worktrees")
@@ -1256,12 +1135,8 @@ class CprojCLI:
             help="Terminal app",
         )
         parser.add_argument("--editor", help="Editor command")
-        parser.add_argument(
-            "--yes", action="store_true", help="Skip confirmations"
-        )
-        parser.add_argument(
-            "--verbose", action="store_true", help="Verbose output"
-        )
+        parser.add_argument("--yes", action="store_true", help="Skip confirmations")
+        parser.add_argument("--verbose", action="store_true", help="Verbose output")
         parser.add_argument("--json", action="store_true", help="JSON output")
         parser.add_argument(
             "--log-level",
@@ -1280,9 +1155,7 @@ class CprojCLI:
         init_parser.add_argument("--clone", help="Clone URL if repo not local")
 
         # worktree create command
-        wt_create = subparsers.add_parser(
-            "worktree", aliases=["w"], help="Worktree commands"
-        )
+        wt_create = subparsers.add_parser("worktree", aliases=["w"], help="Worktree commands")
         wt_sub = wt_create.add_subparsers(dest="worktree_command")
 
         create_parser = wt_sub.add_parser("create", help="Create worktree")
@@ -1308,9 +1181,7 @@ class CprojCLI:
             action="store_true",
             help="Auto-install Node deps",
         )
-        create_parser.add_argument(
-            "--java-build", action="store_true", help="Auto-build Java"
-        )
+        create_parser.add_argument("--java-build", action="store_true", help="Auto-build Java")
         create_parser.add_argument(
             "--open-editor",
             action="store_true",
@@ -1347,29 +1218,21 @@ class CprojCLI:
             action="store_true",
             help="[Deprecated] Create ready PR (now default)",
         )
-        open_parser.add_argument(
-            "--assign", help="Assignees (comma-separated)"
-        )
-        open_parser.add_argument(
-            "--no-push", action="store_true", help="Don't push branch"
-        )
+        open_parser.add_argument("--assign", help="Assignees (comma-separated)")
+        open_parser.add_argument("--no-push", action="store_true", help="Don't push branch")
         open_parser.add_argument(
             "--no-agents",
             action="store_true",
             help="Skip automated review agents",
         )
 
-        agents_parser = review_sub.add_parser(
-            "agents", help="Run automated review agents"
-        )
+        agents_parser = review_sub.add_parser("agents", help="Run automated review agents")
         agents_parser.add_argument(
             "--setup",
             action="store_true",
             help="Setup review configuration only",
         )
-        agents_parser.add_argument(
-            "--json", action="store_true", help="Output as JSON"
-        )
+        agents_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
         # merge command
         merge_parser = subparsers.add_parser("merge", help="Merge and cleanup")
@@ -1382,26 +1245,18 @@ class CprojCLI:
         merge_parser.add_argument(
             "--delete-remote", action="store_true", help="Delete remote branch"
         )
-        merge_parser.add_argument(
-            "--keep-worktree", action="store_true", help="Keep worktree"
-        )
-        merge_parser.add_argument(
-            "--force", action="store_true", help="Force merge even if dirty"
-        )
+        merge_parser.add_argument("--keep-worktree", action="store_true", help="Keep worktree")
+        merge_parser.add_argument("--force", action="store_true", help="Force merge even if dirty")
 
         # list command
         subparsers.add_parser("list", aliases=["ls"], help="List worktrees")
 
         # status command
-        status_parser = subparsers.add_parser(
-            "status", aliases=["st"], help="Show status"
-        )
+        status_parser = subparsers.add_parser("status", aliases=["st"], help="Show status")
         status_parser.add_argument("path", nargs="?", help="Worktree path")
 
         # cleanup command
-        cleanup_parser = subparsers.add_parser(
-            "cleanup", help="Cleanup worktrees"
-        )
+        cleanup_parser = subparsers.add_parser("cleanup", help="Cleanup worktrees")
         cleanup_parser.add_argument("--older-than", type=int, help="Days old")
         cleanup_parser.add_argument(
             "--merged-only", action="store_true", help="Only merged branches"
@@ -1455,9 +1310,7 @@ class CprojCLI:
                 "start",
             ]:
                 self.cmd_init(parsed_args)
-            elif (
-                parsed_args.command == "worktree" or parsed_args.command == "w"
-            ):
+            elif parsed_args.command == "worktree" or parsed_args.command == "w":
                 if parsed_args.worktree_command == "create":
                     self.cmd_worktree_create(parsed_args)
                 else:
@@ -1516,10 +1369,7 @@ class CprojCLI:
         print("🚀 Welcome to cproj!")
         print()
         print("This will configure system-level settings.")
-        print(
-            "Projects are now automatically detected from your current "
-            "working directory."
-        )
+        print("Projects are now automatically detected from your current " "working directory.")
         print()
 
         # Check if we already have system config
@@ -1529,9 +1379,7 @@ class CprojCLI:
             print("Current system settings:")
             self._show_system_config()
             print()
-            proceed = (
-                input("Reconfigure system settings? [y/N]: ").strip().lower()
-            )
+            proceed = input("Reconfigure system settings? [y/N]: ").strip().lower()
             if proceed not in ["y", "yes"]:
                 return
 
@@ -1556,15 +1404,10 @@ class CprojCLI:
         print(f"  Temp root: {self.config.get('temp_root', 'Not set')}")
         print(f"  Terminal: {self.config.get('terminal', 'Not set')}")
         print(f"  Editor: {self.config.get('editor', 'Not set')}")
-        print(
-            f"  Python prefer uv: {self.config.get('python_prefer_uv', False)}"
-        )
+        print(f"  Python prefer uv: {self.config.get('python_prefer_uv', False)}")
         print(f"  Node use nvm: {self.config.get('node_use_nvm', False)}")
         print(f"  Linear org: {self.config.get('linear_org', 'Not set')}")
-        print(
-            f"  GitHub reviewers: "
-            f"{', '.join(self.config.get('github_reviewers', []))}"
-        )
+        print(f"  GitHub reviewers: " f"{', '.join(self.config.get('github_reviewers', []))}")
 
     def _prompt_for_system_config(self) -> Dict:
         """Prompt for system-level configuration"""
@@ -1575,28 +1418,20 @@ class CprojCLI:
 
         # Temp directory for worktrees
         default_temp = str(Path.home() / ".cache" / "cproj-workspaces")
-        temp_root = input(
-            f"Temp directory for worktrees [{default_temp}]: "
-        ).strip()
+        temp_root = input(f"Temp directory for worktrees [{default_temp}]: ").strip()
         config["temp_root"] = temp_root or default_temp
 
         # Terminal preference
         default_terminal = "Terminal" if sys.platform == "darwin" else "none"
-        terminal = input(
-            f"Terminal app (Terminal, iTerm, none) [{default_terminal}]: "
-        ).strip()
+        terminal = input(f"Terminal app (Terminal, iTerm, none) [{default_terminal}]: ").strip()
         config["terminal"] = terminal or default_terminal
 
         # Editor preference
-        editor = input(
-            "Editor command (code, cursor, vim, etc.) [code]: "
-        ).strip()
+        editor = input("Editor command (code, cursor, vim, etc.) [code]: ").strip()
         config["editor"] = editor or "code"
 
         # Python preferences
-        python_uv = (
-            input("Prefer uv for Python environments? [Y/n]: ").strip().lower()
-        )
+        python_uv = input("Prefer uv for Python environments? [Y/n]: ").strip().lower()
         config["python_prefer_uv"] = str(python_uv != "n")
 
         # Node preferences
@@ -1614,13 +1449,9 @@ class CprojCLI:
             config["linear_org"] = linear_org
 
         # GitHub reviewers
-        github_reviewers = input(
-            "GitHub default reviewers (comma-separated, optional): "
-        ).strip()
+        github_reviewers = input("GitHub default reviewers (comma-separated, optional): ").strip()
         if github_reviewers:
-            config["github_reviewers"] = ",".join([
-                r.strip() for r in github_reviewers.split(",")
-            ])
+            config["github_reviewers"] = ",".join([r.strip() for r in github_reviewers.split(",")])
 
         return config
 
@@ -1660,24 +1491,13 @@ class CprojCLI:
         # Prompt user if interactive
         if self._is_interactive():
             print("\n🔗 CLAUDE.md Configuration")
-            print(
-                f"Found CLAUDE.md symlinked as .cursorrules in "
-                f"{repo_path.name}"
-            )
+            print(f"Found CLAUDE.md symlinked as .cursorrules in " f"{repo_path.name}")
 
             if default_action == "yes":
-                response = (
-                    input("Create .cursorrules symlink in worktree? [Y/n]: ")
-                    .strip()
-                    .lower()
-                )
+                response = input("Create .cursorrules symlink in worktree? [Y/n]: ").strip().lower()
                 create_link = response in ("", "y", "yes")
             else:
-                response = (
-                    input("Create .cursorrules symlink in worktree? [y/N]: ")
-                    .strip()
-                    .lower()
-                )
+                response = input("Create .cursorrules symlink in worktree? [y/N]: ").strip().lower()
                 create_link = response in ("y", "yes")
         else:
             # Non-interactive: use default
@@ -1719,16 +1539,12 @@ class CprojCLI:
 
             if default_action == "yes":
                 response = (
-                    input("Create nvm setup script for this worktree? [Y/n]: ")
-                    .strip()
-                    .lower()
+                    input("Create nvm setup script for this worktree? [Y/n]: ").strip().lower()
                 )
                 setup_nvm = response in ("", "y", "yes")
             else:
                 response = (
-                    input("Create nvm setup script for this worktree? [y/N]: ")
-                    .strip()
-                    .lower()
+                    input("Create nvm setup script for this worktree? [y/N]: ").strip().lower()
                 )
                 setup_nvm = response in ("y", "yes")
 
@@ -1769,27 +1585,19 @@ echo "   terminal in this directory"
             except OSError as e:
                 print(f"⚠️  Failed to create nvm setup script: {e}")
 
-    def _setup_claude_workspace(
-        self, worktree_path: Path, repo_path: Path, args=None
-    ):
+    def _setup_claude_workspace(self, worktree_path: Path, repo_path: Path, args=None):
         """Setup Claude workspace configuration with commands and agents"""
         # Get cproj's Claude templates
         cproj_root = Path(__file__).parent
         cproj_claude_dir = cproj_root / ".claude"
 
-        logger.debug(
-            f"Looking for cproj .claude directory at: {cproj_claude_dir}"
-        )
-        logger.debug(
-            f"cproj .claude directory exists: {cproj_claude_dir.exists()}"
-        )
+        logger.debug(f"Looking for cproj .claude directory at: {cproj_claude_dir}")
+        logger.debug(f"cproj .claude directory exists: {cproj_claude_dir.exists()}")
 
         # Check target project's .claude directory
         project_claude_dir = repo_path / ".claude"
         logger.debug(f"Project .claude directory: {project_claude_dir}")
-        logger.debug(
-            f"Project .claude directory exists: {project_claude_dir.exists()}"
-        )
+        logger.debug(f"Project .claude directory exists: {project_claude_dir.exists()}")
 
         # Need at least cproj templates to proceed
         if not cproj_claude_dir.exists():
@@ -1804,10 +1612,7 @@ echo "   terminal in this directory"
         # Check if we should set up Claude workspace
         default_action = self.config.get("claude_workspace_default", "yes")
         setup_workspace = default_action == "yes"
-        logger.debug(
-            f"Default action: {default_action}, "
-            f"setup_workspace: {setup_workspace}"
-        )
+        logger.debug(f"Default action: {default_action}, " f"setup_workspace: {setup_workspace}")
 
         # Override with explicit --setup-claude flag
         if args and hasattr(args, "setup_claude") and args.setup_claude:
@@ -1818,23 +1623,14 @@ echo "   terminal in this directory"
             print("Found Claude commands and agents configuration.")
 
             if default_action == "yes":
-                response = (
-                    input("Setup Claude workspace in worktree? [Y/n]: ")
-                    .strip()
-                    .lower()
-                )
+                response = input("Setup Claude workspace in worktree? [Y/n]: ").strip().lower()
                 setup_workspace = response in ("", "y", "yes")
             else:
-                response = (
-                    input("Setup Claude workspace in worktree? [y/N]: ")
-                    .strip()
-                    .lower()
-                )
+                response = input("Setup Claude workspace in worktree? [y/N]: ").strip().lower()
                 setup_workspace = response in ("y", "yes")
 
             logger.debug(
-                f"Interactive response: '{response}', "
-                f"final setup_workspace: {setup_workspace}"
+                f"Interactive response: '{response}', " f"final setup_workspace: {setup_workspace}"
             )
 
         logger.debug(f"Final decision - setup_workspace: {setup_workspace}")
@@ -1892,9 +1688,7 @@ echo "   terminal in this directory"
                         shutil.copy2(item, target_file)
                         # Make shell scripts executable
                         if item.suffix == ".sh":
-                            target_file.chmod(
-                                target_file.stat().st_mode | 0o111
-                            )
+                            target_file.chmod(target_file.stat().st_mode | 0o111)
                         print(f"  ✅ Copied cproj {item.name}")
 
                 # Copy standalone files from project
@@ -1908,9 +1702,7 @@ echo "   terminal in this directory"
                             shutil.copy2(item, target_file)
                             # Make shell scripts executable
                             if item.suffix == ".sh":
-                                target_file.chmod(
-                                    target_file.stat().st_mode | 0o111
-                                )
+                                target_file.chmod(target_file.stat().st_mode | 0o111)
                             print(f"  ✅ Merged project {item.name}")
 
                 # Copy MCP config (prefer project over cproj template)
@@ -1928,9 +1720,7 @@ echo "   terminal in this directory"
                         print("  ✅ Using cproj mcp_config.json")
 
                 if mcp_source:
-                    shutil.copy2(
-                        mcp_source, worktree_claude_dir / "mcp_config.json"
-                    )
+                    shutil.copy2(mcp_source, worktree_claude_dir / "mcp_config.json")
 
                 # Create workspace-specific configuration
                 workspace_config = {
@@ -1939,15 +1729,12 @@ echo "   terminal in this directory"
                     "linear": {
                         "org": self.config.get("linear_org"),
                         "default_team": self.config.get("linear_default_team"),
-                        "default_project": self.config.get(
-                            "linear_default_project"
-                        ),
+                        "default_project": self.config.get("linear_default_project"),
                     },
                     "commands": {
                         "add-ticket": {
                             "description": (
-                                "Create comprehensive Linear tickets using "
-                                "AI agents"
+                                "Create comprehensive Linear tickets using " "AI agents"
                             ),
                             "agents": [
                                 "product-manager",
@@ -1970,18 +1757,10 @@ echo "   terminal in this directory"
                         },
                     },
                     "agents": {
-                        "product-manager": (
-                            "Turn high-level asks into crisp PRDs"
-                        ),
-                        "ux-designer": (
-                            "Create clear, accessible, user-centric designs"
-                        ),
-                        "senior-software-engineer": (
-                            "Plan implementation with tests and docs"
-                        ),
-                        "code-reviewer": (
-                            "Review code for correctness and maintainability"
-                        ),
+                        "product-manager": ("Turn high-level asks into crisp PRDs"),
+                        "ux-designer": ("Create clear, accessible, user-centric designs"),
+                        "senior-software-engineer": ("Plan implementation with tests and docs"),
+                        "code-reviewer": ("Review code for correctness and maintainability"),
                     },
                 }
 
@@ -2022,9 +1801,7 @@ echo "   terminal in this directory"
         from datetime import datetime
 
         # Get configured branch scheme
-        branch_scheme = self.config.get(
-            "branch_scheme", "feature/{ticket}-{slug}"
-        )
+        branch_scheme = self.config.get("branch_scheme", "feature/{ticket}-{slug}")
 
         suggestions = []
         timestamp = datetime.now().strftime("%m%d")
@@ -2036,9 +1813,7 @@ echo "   terminal in this directory"
                     branch_scheme.replace("{ticket}", "TICKET-123").replace(
                         "{slug}", "description"
                     ),
-                    branch_scheme.replace("{ticket}", "ABC-456").replace(
-                        "{slug}", "feature-name"
-                    ),
+                    branch_scheme.replace("{ticket}", "ABC-456").replace("{slug}", "feature-name"),
                 ]
             )
         elif "{ticket}" in branch_scheme:
@@ -2123,26 +1898,19 @@ echo "   terminal in this directory"
                 print("  cproj w create --branch feature/name")
                 print()
                 print("Or:")
-                print(
-                    "  cproj w create --repo /path/to/project "
-                    "--branch feature/name"
-                )
+                print("  cproj w create --repo /path/to/project " "--branch feature/name")
                 return
 
         # Derive project settings from repository
         project_name = repo_path.name
-        base_branch = (
-            args.base or self._detect_default_branch(repo_path) or "main"
-        )
+        base_branch = args.base or self._detect_default_branch(repo_path) or "main"
         temp_root = Path(
             args.temp_root
             or self.config.get("temp_root", tempfile.gettempdir())
             or tempfile.gettempdir()
         )
 
-        logger.debug(
-            f"Using repository: {repo_path} (project: {project_name})"
-        )
+        logger.debug(f"Using repository: {repo_path} (project: {project_name})")
 
         # Interactive prompt for branch name if not provided and
         # in interactive mode
@@ -2163,9 +1931,7 @@ echo "   terminal in this directory"
             print()
 
             while True:
-                branch_input = input(
-                    "Enter branch name (or number for suggestion): "
-                ).strip()
+                branch_input = input("Enter branch name (or number for suggestion): ").strip()
 
                 if not branch_input:
                     print("❌ Branch name is required")
@@ -2179,10 +1945,7 @@ echo "   terminal in this directory"
                             args.branch = suggestions[suggestion_idx]
                             break
                         else:
-                            print(
-                                f"❌ Please enter a number between 1 and "
-                                f"{len(suggestions)}"
-                            )
+                            print(f"❌ Please enter a number between 1 and " f"{len(suggestions)}")
                             continue
                     except (ValueError, IndexError):
                         print("❌ Invalid selection")
@@ -2196,17 +1959,11 @@ echo "   terminal in this directory"
 
         # Interactive prompt for Linear URL if not provided and
         # Linear is configured
-        if (
-            not args.linear
-            and self.config.get("linear_org")
-            and self._is_interactive()
-        ):
+        if not args.linear and self.config.get("linear_org") and self._is_interactive():
             print("🔗 Linear Integration (optional)")
             print("-" * 50)
             print(f"Linear organization: {self.config.get('linear_org')}")
-            linear_input = input(
-                "Linear issue URL (optional, press Enter to skip): "
-            ).strip()
+            linear_input = input("Linear issue URL (optional, press Enter to skip): ").strip()
             if linear_input:
                 args.linear = linear_input
                 print(f"✅ Using Linear URL: {args.linear}")
@@ -2234,41 +1991,23 @@ echo "   terminal in this directory"
             )
 
             if has_python:
-                python_install = (
-                    input("Auto-install Python dependencies? [y/N]: ")
-                    .strip()
-                    .lower()
-                )
+                python_install = input("Auto-install Python dependencies? [y/N]: ").strip().lower()
                 args.python_install = python_install in ["y", "yes"]
 
                 if not args.python_install:
-                    shared_venv = (
-                        input("Use shared venv from main repo? [y/N]: ")
-                        .strip()
-                        .lower()
-                    )
+                    shared_venv = input("Use shared venv from main repo? [y/N]: ").strip().lower()
                     args.shared_venv = shared_venv in ["y", "yes"]
 
             if has_node:
-                node_install = (
-                    input("Auto-install Node dependencies? [y/N]: ")
-                    .strip()
-                    .lower()
-                )
+                node_install = input("Auto-install Node dependencies? [y/N]: ").strip().lower()
                 args.node_install = node_install in ["y", "yes"]
 
             if has_java:
-                java_build = (
-                    input("Auto-build Java project? [y/N]: ").strip().lower()
-                )
+                java_build = input("Auto-build Java project? [y/N]: ").strip().lower()
                 args.java_build = java_build in ["y", "yes"]
 
             # Ask about .env files
-            copy_env = (
-                input("Copy .env files from main repo? [y/N]: ")
-                .strip()
-                .lower()
-            )
+            copy_env = input("Copy .env files from main repo? [y/N]: ").strip().lower()
             args.copy_env = copy_env in ["y", "yes"]
 
             if has_python or has_node or has_java:
@@ -2295,9 +2034,7 @@ echo "   terminal in this directory"
 
         # Setup environment
         env_setup = EnvironmentSetup(worktree_path)
-        python_env = env_setup.setup_python(
-            args.python_install, args.shared_venv, repo_path
-        )
+        python_env = env_setup.setup_python(args.python_install, args.shared_venv, repo_path)
         node_env = env_setup.setup_node(args.node_install)
         java_env = env_setup.setup_java(args.java_build)
 
@@ -2331,18 +2068,14 @@ echo "   terminal in this directory"
         print(f"Branch: {args.branch}")
 
         # Open terminal by default (unless --no-terminal is specified)
-        terminal_app = (
-            args.terminal or self.config.get("terminal", "Terminal")
-        )
+        terminal_app = args.terminal or self.config.get("terminal", "Terminal")
         if not args.no_terminal and terminal_app != "none":
             # Strip branch prefix (everything before /) for cleaner
             # window title
             import re
 
             branch_display = re.sub(r"^\S+/", "", args.branch)
-            TerminalAutomation.open_terminal(
-                worktree_path, branch_display, terminal_app
-            )
+            TerminalAutomation.open_terminal(worktree_path, branch_display, terminal_app)
 
         # Open editor only if --open-editor is specified
         if args.open_editor:
@@ -2401,17 +2134,11 @@ echo "   terminal in this directory"
                 context.pr_title = branch
 
                 result = setup_review(worktree_path, context)
-                print(
-                    f"✅ Review configuration created: "
-                    f"{result['config_path']}"
-                )
+                print(f"✅ Review configuration created: " f"{result['config_path']}")
                 print("📋 Ready for Claude review! Run:")
                 print("   cproj review agents")
             except ImportError:
-                print(
-                    "⚠️  Review agents not available "
-                    "(claude_review_agents.py not found)"
-                )
+                print("⚠️  Review agents not available " "(claude_review_agents.py not found)")
             except Exception as e:
                 print(f"⚠️  Could not setup review agents: {e}")
 
@@ -2443,33 +2170,21 @@ echo "   terminal in this directory"
 
             # Create project context with safe values
             context = ProjectContext()
-            if "links" in agent_json.data and agent_json.data["links"].get(
-                "linear"
-            ):
+            if "links" in agent_json.data and agent_json.data["links"].get("linear"):
                 # Sanitize Linear URL
-                linear_url = str(agent_json.data["links"]["linear"])[
-                    :200
-                ]  # Limit length
+                linear_url = str(agent_json.data["links"]["linear"])[:200]  # Limit length
                 context.ticket = f"Linear: {linear_url}"
 
-            if "workspace" in agent_json.data and agent_json.data[
-                "workspace"
-            ].get("branch"):
+            if "workspace" in agent_json.data and agent_json.data["workspace"].get("branch"):
                 # Sanitize branch name
-                branch = str(agent_json.data["workspace"]["branch"])[
-                    :100
-                ]  # Limit length
-                safe_branch = "".join(
-                    c for c in branch if c.isalnum() or c in "-_."
-                )
+                branch = str(agent_json.data["workspace"]["branch"])[:100]  # Limit length
+                safe_branch = "".join(c for c in branch if c.isalnum() or c in "-_.")
                 context.pr_title = safe_branch
 
             if args.setup:
                 # Just setup configuration
                 result = setup_review(worktree_path, context)
-                print(
-                    f"✅ Review configuration saved: {result['config_path']}"
-                )
+                print(f"✅ Review configuration saved: {result['config_path']}")
                 print(f"🤖 Configured {result['agents']} agents")
                 print(f"📊 Diff size: {result['diff_size']} bytes")
                 print("\n🎯 To run the review:")
@@ -2495,36 +2210,18 @@ echo "   terminal in this directory"
                 print("\nNext steps:")
                 print("1. Copy the following prompt to Claude:")
                 print("\n" + "-" * 40)
-                print(
-                    "Please run a comprehensive PR review using the Task tool."
-                )
-                print(
-                    "The review configuration is in .cproj/.cproj_review.json"
-                )
+                print("Please run a comprehensive PR review using the Task tool.")
+                print("The review configuration is in .cproj/.cproj_review.json")
                 print("\nRun these three agents in sequence:")
-                print(
-                    "1. Senior Developer Code Review (general-purpose agent)"
-                )
+                print("1. Senior Developer Code Review (general-purpose agent)")
                 print("2. QA Engineer Review (general-purpose agent)")
                 print("3. Security Review (general-purpose agent)")
-                print(
-                    "\nFor each agent, use the prompt from the "
-                    "configuration file."
-                )
-                print(
-                    "Parse the JSON responses and provide a consolidated "
-                    "report."
-                )
+                print("\nFor each agent, use the prompt from the " "configuration file.")
+                print("Parse the JSON responses and provide a consolidated " "report.")
                 print("-" * 40)
                 print(f"\n2. The configuration file is: {config_path}")
-                print(
-                    "3. Each agent has a specific prompt and JSON output "
-                    "contract"
-                )
-                print(
-                    "4. Aggregate all findings and determine if PR should be "
-                    "blocked"
-                )
+                print("3. Each agent has a specific prompt and JSON output " "contract")
+                print("4. Aggregate all findings and determine if PR should be " "blocked")
 
         except ValueError as e:
             raise CprojError(f"Security validation failed: {e}")
@@ -2549,37 +2246,26 @@ echo "   terminal in this directory"
 
         # Check if dirty
         if not args.force and git.is_branch_dirty(worktree_path):
-            raise CprojError(
-                "Worktree has uncommitted changes. Use --force to override."
-            )
+            raise CprojError("Worktree has uncommitted changes. Use --force to override.")
 
         # Merge PR if GitHub available
         merge_successful = False
         if GitHubIntegration.is_available():
-            merge_successful = GitHubIntegration.merge_pr(
-                args.squash, args.delete_remote
-            )
+            merge_successful = GitHubIntegration.merge_pr(args.squash, args.delete_remote)
             if merge_successful:
                 print("PR merged successfully")
             else:
-                print(
-                    "❌ PR merge failed. Keeping worktree for you to "
-                    "continue working."
-                )
+                print("❌ PR merge failed. Keeping worktree for you to " "continue working.")
                 print("Common reasons:")
                 print(
-                    "  - PR is still in draft mode (use 'gh pr ready' or "
-                    "mark ready in GitHub)"
+                    "  - PR is still in draft mode (use 'gh pr ready' or " "mark ready in GitHub)"
                 )
                 print("  - PR needs approval from reviewers")
                 print("  - PR has merge conflicts")
                 print("  - Branch protection rules not satisfied")
                 return
         else:
-            print(
-                "⚠️  GitHub CLI not available. Please merge manually "
-                "in GitHub."
-            )
+            print("⚠️  GitHub CLI not available. Please merge manually " "in GitHub.")
             print("After merging, you can clean up with:")
             print(f"  git worktree remove --force {worktree_path}")
             return
@@ -2701,9 +2387,7 @@ echo "   terminal in this directory"
             print("-" * 50)
 
             # Show current worktrees with ages
-            active_worktrees = [
-                wt for wt in worktrees if Path(wt["path"]) != repo_path
-            ]
+            active_worktrees = [wt for wt in worktrees if Path(wt["path"]) != repo_path]
             if not active_worktrees:
                 print("No worktrees to clean up.")
                 return
@@ -2720,13 +2404,9 @@ echo "   terminal in this directory"
                     try:
                         agent_json = AgentJson(path)
                         created_at = datetime.fromisoformat(
-                            agent_json.data["workspace"]["created_at"].replace(
-                                "Z", "+00:00"
-                            )
+                            agent_json.data["workspace"]["created_at"].replace("Z", "+00:00")
                         )
-                        age_days = (
-                            datetime.now(timezone.utc) - created_at
-                        ).days
+                        age_days = (datetime.now(timezone.utc) - created_at).days
                         age_info = f" ({age_days} days old)"
                     except Exception:
                         pass
@@ -2752,10 +2432,7 @@ echo "   terminal in this directory"
                     selected_for_removal = []
 
                     print("📋 Select worktrees to remove:")
-                    print(
-                        "   [y/n] for each worktree, Enter to confirm "
-                        "selection"
-                    )
+                    print("   [y/n] for each worktree, Enter to confirm " "selection")
                     print()
 
                     for i, wt in enumerate(active_worktrees):
@@ -2769,21 +2446,18 @@ echo "   terminal in this directory"
                             try:
                                 agent_json = AgentJson(path)
                                 created_at = datetime.fromisoformat(
-                                    agent_json.data["workspace"][
-                                        "created_at"
-                                    ].replace("Z", "+00:00")
+                                    agent_json.data["workspace"]["created_at"].replace(
+                                        "Z", "+00:00"
+                                    )
                                 )
-                                age_days = (
-                                    datetime.now(timezone.utc) - created_at
-                                ).days
+                                age_days = (datetime.now(timezone.utc) - created_at).days
                                 age_info = f" ({age_days} days old)"
                             except Exception:
                                 pass
 
                         # Check if this is the current worktree
                         is_current = (
-                            current_worktree == path
-                            or current_worktree.resolve() == path.resolve()
+                            current_worktree == path or current_worktree.resolve() == path.resolve()
                         )
                         status_info = " [CURRENT]" if is_current else ""
 
@@ -2799,9 +2473,7 @@ echo "   terminal in this directory"
                             if response in ["", "n", "no"]:
                                 break
                             elif response in ["y", "yes"]:
-                                if (
-                                    not is_current
-                                ):  # Don't allow removing current worktree
+                                if not is_current:  # Don't allow removing current worktree
                                     selected_for_removal.append(wt)
                                 else:
                                     print("❌ Cannot remove current worktree")
@@ -2811,27 +2483,17 @@ echo "   terminal in this directory"
 
                     if selected_for_removal:
                         print(
-                            f"\n📋 Selected {len(selected_for_removal)} "
-                            f"worktrees for removal"
+                            f"\n📋 Selected {len(selected_for_removal)} " f"worktrees for removal"
                         )
                         for wt in selected_for_removal:
-                            print(
-                                f"  - {Path(wt['path']).name} "
-                                f"[{wt.get('branch', 'N/A')}]"
-                            )
+                            print(f"  - {Path(wt['path']).name} " f"[{wt.get('branch', 'N/A')}]")
 
-                        confirm = (
-                            input("\nConfirm removal? [y/N]: ").strip().lower()
-                        )
+                        confirm = input("\nConfirm removal? [y/N]: ").strip().lower()
                         if confirm in ["y", "yes"]:
                             for wt in selected_for_removal:
                                 try:
-                                    git.remove_worktree(
-                                        Path(wt["path"]), force=args.force
-                                    )
-                                    print(
-                                        f"✅ Removed {Path(wt['path']).name}"
-                                    )
+                                    git.remove_worktree(Path(wt["path"]), force=args.force)
+                                    print(f"✅ Removed {Path(wt['path']).name}")
                                 except subprocess.CalledProcessError as e:
                                     # Capture stderr to get the actual git
                                     # error message
@@ -2850,33 +2512,23 @@ echo "   terminal in this directory"
                                             check=False,
                                         )
                                         error_msg = (
-                                            result.stderr.strip()
-                                            if result.stderr
-                                            else str(e)
+                                            result.stderr.strip() if result.stderr else str(e)
                                         )
                                     except Exception:
                                         error_msg = str(e)
 
+                                    logger.debug(f"Cleanup error message: '{error_msg}'")
                                     logger.debug(
-                                        f"Cleanup error message: '{error_msg}'"
+                                        f"Contains 'is dirty': " f"{'is dirty' in error_msg}"
                                     )
                                     logger.debug(
-                                        f"Contains 'is dirty': "
-                                        f"{'is dirty' in error_msg}"
-                                    )
-                                    logger.debug(
-                                        f"Contains '--force': "
-                                        f"{'--force' in error_msg}"
+                                        f"Contains '--force': " f"{'--force' in error_msg}"
                                     )
                                     logger.debug(f"args.force: {args.force}")
-                                    logger.debug(
-                                        f"Interactive mode: "
-                                        f"{self._is_interactive()}"
-                                    )
+                                    logger.debug(f"Interactive mode: " f"{self._is_interactive()}")
 
                                     if (
-                                        "is dirty" in error_msg
-                                        or "--force" in error_msg
+                                        "is dirty" in error_msg or "--force" in error_msg
                                     ) and not args.force:
                                         print(
                                             f"❌ Failed to remove "
@@ -2909,24 +2561,16 @@ echo "   terminal in this directory"
                                                         f"{Path(wt['path']).name}: {force_e}"
                                                     )
                                             else:
-                                                print(
-                                                    f"⏭️  Skipped {Path(wt['path']).name}"
-                                                )
+                                                print(f"⏭️  Skipped {Path(wt['path']).name}")
                                         else:
-                                            print(
-                                                "💡 Use --force to remove dirty "
-                                                "worktrees"
-                                            )
+                                            print("💡 Use --force to remove dirty " "worktrees")
                                     else:
                                         print(
                                             f"❌ Failed to remove "
                                             f"{Path(wt['path']).name}: {error_msg}"
                                         )
                                 except Exception as e:
-                                    print(
-                                        f"❌ Failed to remove "
-                                        f"{Path(wt['path']).name}: {e}"
-                                    )
+                                    print(f"❌ Failed to remove " f"{Path(wt['path']).name}: {e}")
                         else:
                             print("Cleanup cancelled")
                     else:
@@ -2937,17 +2581,12 @@ echo "   terminal in this directory"
                     # New option: Remove worktrees newer than X days
                     default_days = 7
                     days_input = input(
-                        f"Remove worktrees newer than how many days? "
-                        f"[{default_days}]: "
+                        f"Remove worktrees newer than how many days? " f"[{default_days}]: "
                     ).strip()
                     try:
-                        newer_days = (
-                            int(days_input) if days_input else default_days
-                        )
+                        newer_days = int(days_input) if days_input else default_days
                         args.newer_than = newer_days
-                        logger.debug(
-                            f"Set args.newer_than to {args.newer_than}"
-                        )
+                        logger.debug(f"Set args.newer_than to {args.newer_than}")
                         break
                     except ValueError:
                         print("❌ Please enter a valid number")
@@ -2956,13 +2595,10 @@ echo "   terminal in this directory"
                 elif choice == "3":
                     default_days = self.config.get("cleanup_days", 14)
                     days_input = input(
-                        f"Remove worktrees older than how many days? "
-                        f"[{default_days}]: "
+                        f"Remove worktrees older than how many days? " f"[{default_days}]: "
                     ).strip()
                     try:
-                        args.older_than = (
-                            int(days_input) if days_input else default_days
-                        )
+                        args.older_than = int(days_input) if days_input else default_days
                         break
                     except ValueError:
                         print("❌ Please enter a valid number")
@@ -3004,13 +2640,9 @@ echo "   terminal in this directory"
                     try:
                         agent_json = AgentJson(path)
                         created_at = datetime.fromisoformat(
-                            agent_json.data["workspace"]["created_at"].replace(
-                                "Z", "+00:00"
-                            )
+                            agent_json.data["workspace"]["created_at"].replace("Z", "+00:00")
                         )
-                        age_days = (
-                            datetime.now(timezone.utc) - created_at
-                        ).days
+                        age_days = (datetime.now(timezone.utc) - created_at).days
                         if age_days > args.older_than:
                             should_remove = True
                     except Exception:
@@ -3024,16 +2656,11 @@ echo "   terminal in this directory"
                     try:
                         agent_json = AgentJson(path)
                         created_at = datetime.fromisoformat(
-                            agent_json.data["workspace"]["created_at"].replace(
-                                "Z", "+00:00"
-                            )
+                            agent_json.data["workspace"]["created_at"].replace("Z", "+00:00")
                         )
-                        age_days = (
-                            datetime.now(timezone.utc) - created_at
-                        ).days
+                        age_days = (datetime.now(timezone.utc) - created_at).days
                         logger.debug(
-                            f"{path.name} is {age_days} days old, "
-                            f"newer_than={args.newer_than}"
+                            f"{path.name} is {age_days} days old, " f"newer_than={args.newer_than}"
                         )
                         if age_days <= args.newer_than:
                             should_remove = True
@@ -3088,17 +2715,11 @@ echo "   terminal in this directory"
                                 text=True,
                                 check=False,
                             )
-                            error_msg = (
-                                result.stderr.strip()
-                                if result.stderr
-                                else str(e)
-                            )
+                            error_msg = result.stderr.strip() if result.stderr else str(e)
                         except Exception:
                             error_msg = str(e)
 
-                        if (
-                            "is dirty" in error_msg or "--force" in error_msg
-                        ) and not args.force:
+                        if ("is dirty" in error_msg or "--force" in error_msg) and not args.force:
                             print(
                                 f"❌ Failed to remove {path.name}: Worktree is "
                                 f"dirty (has uncommitted changes)"
@@ -3106,8 +2727,7 @@ echo "   terminal in this directory"
                             if self._is_interactive():
                                 force_choice = (
                                     input(
-                                        f"Force removal of dirty worktree "
-                                        f"{path.name}? [y/N]: "
+                                        f"Force removal of dirty worktree " f"{path.name}? [y/N]: "
                                     )
                                     .strip()
                                     .lower()
@@ -3117,19 +2737,13 @@ echo "   terminal in this directory"
                                         git.remove_worktree(path, force=True)
                                         print(f"✅ Force removed {path.name}")
                                     except Exception as force_e:
-                                        print(
-                                            f"❌ Failed to force remove {path.name}: {force_e}"
-                                        )
+                                        print(f"❌ Failed to force remove {path.name}: {force_e}")
                                 else:
                                     print(f"⏭️  Skipped {path.name}")
                             else:
-                                print(
-                                    "💡 Use --force to remove dirty worktrees"
-                                )
+                                print("💡 Use --force to remove dirty worktrees")
                         else:
-                            print(
-                                f"❌ Failed to remove {path.name}: {error_msg}"
-                            )
+                            print(f"❌ Failed to remove {path.name}: {error_msg}")
                     except Exception as e:
                         print(f"❌ Failed to remove {path.name}: {e}")
 
@@ -3162,10 +2776,7 @@ echo "   terminal in this directory"
                             merge_func(cproj_file, target_file)
                             print(f"🔀 Merged {rel_path}")
                         except Exception as e:
-                            print(
-                                f"⚠️  Could not merge {rel_path}, copying "
-                                f"cproj version: {e}"
-                            )
+                            print(f"⚠️  Could not merge {rel_path}, copying " f"cproj version: {e}")
                             shutil.copy2(cproj_file, target_file)
                     else:
                         # Copy new file
@@ -3191,10 +2802,7 @@ echo "   terminal in this directory"
             target_settings = json.load(f)
 
         # Merge permissions
-        if (
-            "permissions" in cproj_settings
-            and "permissions" in target_settings
-        ):
+        if "permissions" in cproj_settings and "permissions" in target_settings:
             # Combine allow lists (remove duplicates)
             combined_allow = list(
                 set(
@@ -3236,9 +2844,7 @@ echo "   terminal in this directory"
                 target_config["mcpServers"] = {}
 
             # Add cproj's MCP servers, preserving existing ones
-            for server_name, server_config in cproj_config[
-                "mcpServers"
-            ].items():
+            for server_name, server_config in cproj_config["mcpServers"].items():
                 if server_name not in target_config["mcpServers"]:
                     target_config["mcpServers"][server_name] = server_config
 
@@ -3260,22 +2866,14 @@ echo "   terminal in this directory"
         cproj_dir = Path(__file__).parent
         cproj_claude_dir = cproj_dir / ".claude"
         if not cproj_claude_dir.exists():
-            raise CprojError(
-                f"cproj template .claude directory not found: "
-                f"{cproj_claude_dir}"
-            )
+            raise CprojError(f"cproj template .claude directory not found: " f"{cproj_claude_dir}")
 
         # Check if .claude directory exists in current location
         claude_dir = current_dir / ".claude"
 
         if claude_dir.exists():
-            print(
-                f"🔍 Found existing .claude directory in {current_dir}"
-            )
-            print(
-                "🔀 Merging cproj's template files with existing "
-                "configuration..."
-            )
+            print(f"🔍 Found existing .claude directory in {current_dir}")
+            print("🔀 Merging cproj's template files with existing " "configuration...")
             self._merge_claude_config_files(cproj_claude_dir, claude_dir)
         else:
             print(f"📂 Creating new .claude directory in {current_dir}")
@@ -3297,9 +2895,7 @@ echo "   terminal in this directory"
                     print(f"📂 Copying project .claude from {main_repo_path}")
                     shutil.copytree(main_repo_path / ".claude", claude_dir)
                     print("🔀 Merging cproj's template files...")
-                    self._merge_claude_config_files(
-                        cproj_claude_dir, claude_dir
-                    )
+                    self._merge_claude_config_files(cproj_claude_dir, claude_dir)
                 else:
                     # Copy cproj template directly
                     shutil.copytree(cproj_claude_dir, claude_dir)
@@ -3320,8 +2916,7 @@ echo "   terminal in this directory"
             # use 'open review' instead of 'review open'
             if args.path == "review":
                 raise CprojError(
-                    "Did you mean 'cproj review open'? The correct syntax "
-                    "is: cproj review open"
+                    "Did you mean 'cproj review open'? The correct syntax " "is: cproj review open"
                 )
             worktree_path = Path(args.path)
             if not worktree_path.exists():
@@ -3342,16 +2937,13 @@ echo "   terminal in this directory"
                     )
                 parent = parent.parent
             raise CprojError(
-                "Not in a cproj worktree (no .agent.json found in .cproj "
-                "directory)"
+                "Not in a cproj worktree (no .agent.json found in .cproj " "directory)"
             )
 
         agent_json = AgentJson(worktree_path)
         branch = agent_json.data["workspace"]["branch"]
 
-        terminal_app = (
-            args.terminal or self.config.get("terminal", "Terminal")
-        )
+        terminal_app = args.terminal or self.config.get("terminal", "Terminal")
         editor = args.editor or self.config.get("editor", "code")
 
         # Open terminal
@@ -3360,9 +2952,7 @@ echo "   terminal in this directory"
             import re
 
             branch_display = re.sub(r"^\S+/", "", branch)
-            TerminalAutomation.open_terminal(
-                worktree_path, branch_display, terminal_app
-            )
+            TerminalAutomation.open_terminal(worktree_path, branch_display, terminal_app)
 
         # Open editor
         if editor:

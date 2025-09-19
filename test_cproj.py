@@ -80,9 +80,7 @@ class TestAgentJson(unittest.TestCase):
         # Load from file
         agent_json2 = AgentJson(self.temp_dir)
         self.assertEqual(agent_json2.data["project"]["name"], "Test Project")
-        self.assertEqual(
-            agent_json2.data["workspace"]["branch"], "feature/test"
-        )
+        self.assertEqual(agent_json2.data["workspace"]["branch"], "feature/test")
 
     def test_agent_json_links(self):
         agent_json = AgentJson(self.temp_dir)
@@ -125,9 +123,7 @@ class TestEnvironmentSetup(unittest.TestCase):
 
     def test_setup_python_with_pyproject(self):
         # Create pyproject.toml
-        (self.temp_dir / "pyproject.toml").write_text(
-            '[project]\nname = "test"\n'
-        )
+        (self.temp_dir / "pyproject.toml").write_text('[project]\nname = "test"\n')
 
         env_setup = EnvironmentSetup(self.temp_dir)
         result = env_setup.setup_python()
@@ -143,18 +139,14 @@ class TestEnvironmentSetup(unittest.TestCase):
 
     def test_setup_node_with_package_json(self):
         # Create package.json
-        (self.temp_dir / "package.json").write_text(
-            '{"name": "test", "version": "1.0.0"}'
-        )
+        (self.temp_dir / "package.json").write_text('{"name": "test", "version": "1.0.0"}')
 
         env_setup = EnvironmentSetup(self.temp_dir)
         result = env_setup.setup_node()
 
         # Should detect package.json and determine manager based on
         # nvm availability
-        self.assertIn(
-            result["manager"], ["none", "nvm"]
-        )  # Either works depending on system
+        self.assertIn(result["manager"], ["none", "nvm"])  # Either works depending on system
 
     def test_setup_java_maven(self):
         # Create pom.xml
@@ -202,14 +194,10 @@ class TestGitHubIntegration(unittest.TestCase):
         # Mock both auth check and PR creation calls
         mock_run.side_effect = [
             Mock(returncode=0),  # Auth status check succeeds
-            Mock(
-                stdout="https://github.com/test/test/pull/1\n", returncode=0
-            ),  # PR creation
+            Mock(stdout="https://github.com/test/test/pull/1\n", returncode=0),  # PR creation
         ]
 
-        result = GitHubIntegration.create_pr(
-            "Test PR", "Test body", draft=True
-        )
+        result = GitHubIntegration.create_pr("Test PR", "Test body", draft=True)
 
         self.assertEqual(result, "https://github.com/test/test/pull/1")
         self.assertEqual(mock_run.call_count, 2)  # Auth check + PR creation
@@ -267,9 +255,7 @@ class TestCprojCLI(unittest.TestCase):
         cli = CprojCLI()
         parser = cli.create_parser()
 
-        args = parser.parse_args(
-            ["worktree", "create", "--branch", "feature/test"]
-        )
+        args = parser.parse_args(["worktree", "create", "--branch", "feature/test"])
         self.assertEqual(args.command, "worktree")
         self.assertEqual(args.worktree_command, "create")
         self.assertEqual(args.branch, "feature/test")
@@ -302,9 +288,7 @@ class TestClaudeIntegration(unittest.TestCase):
         self.repo_dir.mkdir()
 
         # Initialize git repo
-        subprocess.run(
-            ["git", "init"], cwd=self.repo_dir, check=True, capture_output=True
-        )
+        subprocess.run(["git", "init"], cwd=self.repo_dir, check=True, capture_output=True)
         subprocess.run(
             ["git", "config", "user.email", "test@example.com"],
             cwd=self.repo_dir,
@@ -413,9 +397,7 @@ class TestCleanupDirtyWorktree(unittest.TestCase):
         # Initialize git repo
         import subprocess
 
-        subprocess.run(
-            ["git", "init"], cwd=self.repo_dir, check=True, capture_output=True
-        )
+        subprocess.run(["git", "init"], cwd=self.repo_dir, check=True, capture_output=True)
         subprocess.run(
             ["git", "config", "user.email", "test@example.com"],
             cwd=self.repo_dir,
@@ -565,9 +547,7 @@ class TestIntegration(unittest.TestCase):
         # Initialize git repo
         import subprocess
 
-        subprocess.run(
-            ["git", "init"], cwd=self.repo_dir, check=True, capture_output=True
-        )
+        subprocess.run(["git", "init"], cwd=self.repo_dir, check=True, capture_output=True)
         subprocess.run(
             ["git", "config", "user.email", "test@example.com"],
             cwd=self.repo_dir,
@@ -613,9 +593,7 @@ class TestIntegration(unittest.TestCase):
 
         # Test worktree creation
         worktree_path = self.temp_dir / "test_worktree"
-        created_path = git.create_worktree(
-            worktree_path, "feature/test", "main", interactive=False
-        )
+        created_path = git.create_worktree(worktree_path, "feature/test", "main", interactive=False)
 
         self.assertEqual(created_path, worktree_path)
         self.assertTrue(worktree_path.exists())
