@@ -71,7 +71,9 @@ class OnePasswordIntegration:
 
         try:
             # Validate the reference parameter
-            validated_reference = validate_user_input(reference, max_length=500, allow_special_chars=True)
+            validated_reference = validate_user_input(
+                reference, max_length=500, allow_special_chars=True
+            )
             result = safe_subprocess_run(
                 ["op", "read", validated_reference],
                 timeout=10,
@@ -254,7 +256,9 @@ class GitWorktree:
 
                     while True:
                         try:
-                            choice = validate_user_input(input("Choose option [1-4]: "), max_length=10)
+                            choice = validate_user_input(
+                                input("Choose option [1-4]: "), max_length=10
+                            )
                         except SecurityError as e:
                             print(f"❌ Invalid input: {e}")
                             continue
@@ -436,7 +440,9 @@ class GitWorktree:
         validated_args = []
         for arg in args:
             try:
-                validated_arg = validate_user_input(str(arg), max_length=500, allow_special_chars=True)
+                validated_arg = validate_user_input(
+                    str(arg), max_length=500, allow_special_chars=True
+                )
                 validated_args.append(validated_arg)
             except SecurityError as e:
                 raise CprojError(f"Invalid git argument: {e}")

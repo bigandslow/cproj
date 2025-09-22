@@ -223,7 +223,7 @@ def safe_mkdir(dir_path: Union[str, Path], parents: bool = True,
     validated_path.mkdir(parents=parents, exist_ok=exist_ok)
 
 
-def safe_subprocess_run(cmd: List[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+def safe_subprocess_run(cmd: List[str], **kwargs: Any) -> subprocess.CompletedProcess:
     """
     Safely execute subprocess with enhanced error handling and validation
 
