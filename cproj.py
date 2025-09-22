@@ -19,6 +19,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
+# Import security utilities
+from cproj_security import (
+    SecurityError,
+    validate_branch_name,
+    validate_file_path,
+    validate_user_input,
+    safe_subprocess_run,
+)
+
 # Setup logging
 logger = logging.getLogger("cproj")
 handler = logging.StreamHandler()
@@ -46,14 +55,12 @@ class OnePasswordIntegration:
         else:
             try:
                 # Check if authenticated
-                subprocess.run(
+                safe_subprocess_run(
                     ["op", "account", "list"],
-                    check=True,
-                    capture_output=True,
                     timeout=5,
                 )
                 return True
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            except (subprocess.CalledProcessError, SecurityError):
                 return False
 
     @staticmethod
@@ -63,15 +70,14 @@ class OnePasswordIntegration:
             return None
 
         try:
-            result = subprocess.run(
-                ["op", "read", reference],
-                capture_output=True,
-                text=True,
-                check=True,
+            # Validate the reference parameter
+            validated_reference = validate_user_input(reference, max_length=500, allow_special_chars=True)
+            result = safe_subprocess_run(
+                ["op", "read", validated_reference],
                 timeout=10,
             )
             return result.stdout.strip()
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        except (subprocess.CalledProcessError, SecurityError):
             return None
 
     @staticmethod
@@ -81,21 +87,28 @@ class OnePasswordIntegration:
             return None
 
         try:
+            # Validate inputs
+            validated_title = validate_user_input(title, max_length=100)
+            validated_value = validate_user_input(value, max_length=1000, allow_special_chars=True)
+            validated_vault = None
+            if vault:
+                validated_vault = validate_user_input(vault, max_length=100)
+
             cmd = [
                 "op",
                 "item",
                 "create",
                 "--category=password",
-                f"--title={title}",
+                f"--title={validated_title}",
             ]
-            if vault:
-                cmd.append(f"--vault={vault}")
-            cmd.append(f"password={value}")
+            if validated_vault:
+                cmd.append(f"--vault={validated_vault}")
+            cmd.append(f"password={validated_value}")
 
-            subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=10)
+            safe_subprocess_run(cmd, timeout=10)
             # Extract reference from output (simplified)
-            return f"op://{vault or 'Private'}/{title}/password"
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            return f"op://{validated_vault or 'Private'}/{validated_title}/password"
+        except (subprocess.CalledProcessError, SecurityError):
             return None
 
     @staticmethod
@@ -240,13 +253,22 @@ class GitWorktree:
                     print("  4. Cancel")
 
                     while True:
-                        choice = input("Choose option [1-4]: ").strip()
+                        try:
+                            choice = validate_user_input(input("Choose option [1-4]: "), max_length=10)
+                        except SecurityError as e:
+                            print(f"❌ Invalid input: {e}")
+                            continue
+
                         if choice == "1":
-                            new_branch = input("Enter new branch name: ").strip()
-                            if new_branch:
+                            try:
+                                new_branch_input = input("Enter new branch name: ").strip()
+                                new_branch = validate_branch_name(new_branch_input)
                                 branch = new_branch
                                 break
-                            else:
+                            except SecurityError as e:
+                                print(f"❌ Invalid branch name: {e}")
+                                continue
+                            except Exception:
                                 print("❌ Branch name cannot be empty")
                                 continue
                         elif choice == "2":
@@ -409,9 +431,27 @@ class GitWorktree:
     def _run_git(
         self, args: List[str], cwd: Optional[Path] = None, **kwargs
     ) -> subprocess.CompletedProcess:
-        """Run git command"""
-        cmd = ["git", "-C", str(cwd or self.repo_path)] + args
-        return subprocess.run(cmd, check=True, **kwargs)
+        """Run git command safely"""
+        # Validate git arguments
+        validated_args = []
+        for arg in args:
+            try:
+                validated_arg = validate_user_input(str(arg), max_length=500, allow_special_chars=True)
+                validated_args.append(validated_arg)
+            except SecurityError as e:
+                raise CprojError(f"Invalid git argument: {e}")
+
+        # Validate working directory path
+        if cwd:
+            try:
+                validated_cwd = validate_file_path(cwd, allow_relative=False)
+            except SecurityError as e:
+                raise CprojError(f"Invalid working directory: {e}")
+        else:
+            validated_cwd = self.repo_path
+
+        cmd = ["git", "-C", str(validated_cwd)] + validated_args
+        return safe_subprocess_run(cmd, **kwargs)
 
 
 class AgentJson:
