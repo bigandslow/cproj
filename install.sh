@@ -58,6 +58,12 @@ source "$INSTALL_DIR/venv/bin/activate"
 echo -e "${BLUE}Installing cproj...${NC}"
 cp "$SCRIPT_DIR/cproj.py" "$INSTALL_DIR/"
 
+# Copy .claude directory if it exists
+if [ -d "$SCRIPT_DIR/.claude" ]; then
+    echo -e "${BLUE}Copying .claude template directory...${NC}"
+    cp -r "$SCRIPT_DIR/.claude" "$INSTALL_DIR/"
+fi
+
 # Create wrapper script
 echo -e "${BLUE}Creating executable wrapper...${NC}"
 cat > "$BIN_DIR/cproj" << EOF
