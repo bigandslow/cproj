@@ -758,6 +758,112 @@ class EnvironmentSetup:
                 except OSError as e:
                     print(f"Warning: Failed to copy {rel_path}: {e}")
 
+    def sync_env_files(self, main_repo_path: Path, specific_file: Optional[str] = None,
+                       dry_run: bool = False, backup: bool = False):
+        """Sync .env files from current worktree back to main repo"""
+        from datetime import datetime
+        import difflib
+
+        # Find all .env* files in the current worktree
+        env_patterns = ["**/.env", "**/.env.*"]
+        found_files: List[Path] = []
+
+        for pattern in env_patterns:
+            found_files.extend(self.worktree_path.glob(pattern))
+
+        if not found_files:
+            print("No .env files found in current worktree")
+            return
+
+        # Filter to specific file if requested
+        if specific_file:
+            found_files = [f for f in found_files if f.name == specific_file]
+            if not found_files:
+                print(f"File {specific_file} not found in worktree")
+                return
+
+        synced_count = 0
+        for source_file in found_files:
+            # Skip hidden directories and common build/cache dirs
+            if any(
+                part.startswith(".")
+                and part
+                not in [
+                    ".env",
+                    ".env.local",
+                    ".env.development",
+                    ".env.test",
+                    ".env.production",
+                    ".env.example",
+                ]
+                for part in source_file.relative_to(self.worktree_path).parts[:-1]
+            ):
+                continue
+
+            # Calculate relative path and destination
+            rel_path = source_file.relative_to(self.worktree_path)
+            dest_file = main_repo_path / rel_path
+
+            # Skip if source and destination are identical
+            if source_file.samefile(dest_file) if dest_file.exists() else False:
+                continue
+
+            # Show diff if files differ
+            if dest_file.exists():
+                try:
+                    with open(source_file, 'r') as sf, open(dest_file, 'r') as df:
+                        source_lines = sf.readlines()
+                        dest_lines = df.readlines()
+
+                    diff = list(difflib.unified_diff(
+                        dest_lines, source_lines,
+                        fromfile=f"main/{rel_path}",
+                        tofile=f"worktree/{rel_path}",
+                        lineterm=""
+                    ))
+
+                    if diff:
+                        print(f"\n📝 Changes in {rel_path}:")
+                        for line in diff[:20]:  # Limit diff output
+                            print(line)
+                        if len(diff) > 20:
+                            print(f"... ({len(diff) - 20} more lines)")
+                    else:
+                        print(f"⏭️  No changes in {rel_path}")
+                        continue
+
+                except (IOError, UnicodeDecodeError) as e:
+                    print(f"Warning: Could not read {rel_path}: {e}")
+                    continue
+            else:
+                print(f"➕ New file: {rel_path}")
+
+            if dry_run:
+                print(f"[DRY RUN] Would sync {rel_path}")
+                continue
+
+            try:
+                # Create backup if requested
+                if backup and dest_file.exists():
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    backup_file = dest_file.with_suffix(f"{dest_file.suffix}.backup_{timestamp}")
+                    shutil.copy2(dest_file, backup_file)
+                    print(f"📁 Backup created: {backup_file.name}")
+
+                # Create parent directories if needed
+                dest_file.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source_file, dest_file)
+                print(f"✅ Synced {rel_path}")
+                synced_count += 1
+
+            except OSError as e:
+                print(f"❌ Failed to sync {rel_path}: {e}")
+
+        if not dry_run:
+            print(f"\n🎉 Synced {synced_count} file(s) to main repo")
+        else:
+            print(f"\n[DRY RUN] Would sync {synced_count} file(s)")
+
 
 class TerminalAutomation:
     """Terminal and editor automation"""
@@ -1284,6 +1390,25 @@ class CprojCLI:
             help="Force setup even if .claude directory exists",
         )
 
+        # sync-env command
+        sync_env_parser = subparsers.add_parser(
+            "sync-env", help="Sync .env files from worktree to main repo"
+        )
+        sync_env_parser.add_argument(
+            "--file",
+            help="Specific .env file to sync (e.g., .env.local)",
+        )
+        sync_env_parser.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="Preview changes without copying files",
+        )
+        sync_env_parser.add_argument(
+            "--backup",
+            action="store_true",
+            help="Create backup of existing files before overwriting",
+        )
+
         # config command
         config_parser = subparsers.add_parser("config", help="Configuration")
         config_parser.add_argument("key", nargs="?", help="Config key")
@@ -1336,6 +1461,8 @@ class CprojCLI:
                 self.cmd_open(parsed_args)
             elif parsed_args.command == "setup-claude":
                 self.cmd_setup_claude(parsed_args)
+            elif parsed_args.command == "sync-env":
+                self.cmd_sync_env(parsed_args)
             elif parsed_args.command == "config":
                 self.cmd_config(parsed_args)
             else:
@@ -2969,6 +3096,46 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             subprocess.run(["open", links["linear"]], check=False)
         if links["pr"]:
             subprocess.run(["open", links["pr"]], check=False)
+
+    def cmd_sync_env(self, args):
+        """Sync .env files from worktree to main repo"""
+        # Validate we're in a worktree
+        current_path = Path.cwd()
+        agent_json_path = current_path / ".cproj" / ".agent.json"
+
+        if not agent_json_path.exists():
+            # Check if we're in a subdirectory of a worktree
+            parent = current_path.parent
+            while parent != parent.parent:
+                if (parent / ".cproj" / ".agent.json").exists():
+                    current_path = parent
+                    agent_json_path = parent / ".cproj" / ".agent.json"
+                    break
+                parent = parent.parent
+            else:
+                raise CprojError(
+                    "Not in a cproj worktree. Run this command from a worktree directory."
+                )
+
+        # Load agent.json to get main repo path
+        try:
+            with open(agent_json_path, 'r') as f:
+                agent_data = json.load(f)
+        except (json.JSONDecodeError, IOError) as e:
+            raise CprojError(f"Failed to read .agent.json: {e}")
+
+        main_repo_path = Path(agent_data["workspace"]["main_repo_path"])
+        if not main_repo_path.exists():
+            raise CprojError(f"Main repo path not found: {main_repo_path}")
+
+        # Set up environment and sync
+        env_setup = EnvironmentSetup(current_path)
+        env_setup.sync_env_files(
+            main_repo_path=main_repo_path,
+            specific_file=args.file,
+            dry_run=args.dry_run,
+            backup=args.backup
+        )
 
     def cmd_config(self, args):
         """Configuration management"""
