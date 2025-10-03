@@ -840,6 +840,7 @@ class EnvironmentSetup:
 
             if dry_run:
                 print(f"[DRY RUN] Would sync {rel_path}")
+                synced_count += 1
                 continue
 
             try:
@@ -3124,7 +3125,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         except (json.JSONDecodeError, IOError) as e:
             raise CprojError(f"Failed to read .agent.json: {e}")
 
-        main_repo_path = Path(agent_data["workspace"]["main_repo_path"])
+        main_repo_path = Path(agent_data["project"]["repo_path"])
         if not main_repo_path.exists():
             raise CprojError(f"Main repo path not found: {main_repo_path}")
 
