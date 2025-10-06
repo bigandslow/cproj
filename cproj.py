@@ -15,9 +15,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import yaml
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 
 # Setup logging
 logger = logging.getLogger("cproj")
@@ -142,6 +143,82 @@ class Config:
     def set(self, key: str, value):
         self._config[key] = value
         self.save()
+
+
+class ProjectConfig:
+    """Project-specific configuration management"""
+
+    def __init__(self, repo_path: Path):
+        self.repo_path = repo_path
+        self.config_path = repo_path / ".cproj" / "project.yaml"
+        self._config: Dict[str, Any] = self._load_config()
+
+    def _load_config(self) -> Dict[str, Any]:
+        """Load project configuration from project.yaml"""
+        if not self.config_path.exists():
+            return self._get_default_config()
+
+        try:
+            with open(self.config_path, 'r') as f:
+                config = yaml.safe_load(f) or {}
+        except (yaml.YAMLError, IOError) as e:
+            logger.warning(f"Failed to load project config: {e}")
+            return self._get_default_config()
+
+        # Merge with defaults
+        default_config = self._get_default_config()
+        features = default_config["features"].copy()
+        features.update(config.get("features", {}))
+
+        return {
+            "name": config.get("name", self.repo_path.name),
+            "type": config.get("type", "generic"),
+            "features": features
+        }
+
+    def _get_default_config(self) -> Dict[str, Any]:
+        """Get default configuration for projects without config"""
+        return {
+            "name": self.repo_path.name,
+            "type": "generic",
+            "features": {
+                "claude_workspace": False,
+                "claude_symlink": False,
+                "review_agents": False,
+                "nvm_setup": False,
+                "env_sync_check": False
+            }
+        }
+
+    def save(self):
+        """Save configuration to project.yaml"""
+        self.config_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(self.config_path, 'w') as f:
+            yaml.dump(self._config, f, default_flow_style=False, sort_keys=False)
+
+    def is_feature_enabled(self, feature: str) -> bool:
+        """Check if a feature is enabled"""
+        return self._config.get("features", {}).get(feature, False)
+
+    def get_project_name(self) -> str:
+        """Get project name"""
+        return self._config.get("name", self.repo_path.name)
+
+    def get_project_type(self) -> str:
+        """Get project type"""
+        return self._config.get("type", "generic")
+
+    def enable_feature(self, feature: str, enabled: bool = True):
+        """Enable or disable a feature"""
+        if "features" not in self._config:
+            self._config["features"] = {}
+        self._config["features"][feature] = enabled
+
+    def set_project_info(self, name: str, project_type: str):
+        """Set project name and type"""
+        self._config["name"] = name
+        self._config["type"] = project_type
 
 
 class GitWorktree:
@@ -1309,6 +1386,18 @@ class CprojCLI:
         init_parser.add_argument("--name", help="Project name")
         init_parser.add_argument("--clone", help="Clone URL if repo not local")
 
+        # init-project command
+        init_project_parser = subparsers.add_parser(
+            "init-project", help="Initialize project configuration"
+        )
+        init_project_parser.add_argument("--name", help="Project name")
+        init_project_parser.add_argument(
+            "--type", help="Project type",
+            choices=["tool", "web-app", "library", "generic"])
+        init_project_parser.add_argument(
+            "--template", help="Configuration template",
+            choices=["cproj", "trivalley", "minimal"])
+
         # worktree create command
         wt_create = subparsers.add_parser("worktree", aliases=["w"], help="Worktree commands")
         wt_sub = wt_create.add_subparsers(dest="worktree_command")
@@ -1484,6 +1573,8 @@ class CprojCLI:
                 "start",
             ]:
                 self.cmd_init(parsed_args)
+            elif parsed_args.command == "init-project":
+                self.cmd_init_project(parsed_args)
             elif parsed_args.command == "worktree" or parsed_args.command == "w":
                 if parsed_args.worktree_command == "create":
                     self.cmd_worktree_create(parsed_args)
@@ -2063,6 +2154,147 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                     continue
         return None
 
+    def cmd_init_project(self, args):
+        """Initialize project configuration"""
+        current_dir = Path.cwd()
+
+        # Check if we're in a git repository
+        try:
+            repo_path = self._find_git_root(current_dir)
+            if not repo_path:
+                raise CprojError("Not in a git repository")
+        except Exception:
+            raise CprojError("Not in a git repository")
+
+        # Load existing project config or create new one
+        project_config = ProjectConfig(repo_path)
+
+        print(f"🔧 Initializing project configuration for {repo_path.name}")
+        print()
+
+        # Check if config already exists
+        if project_config.config_path.exists():
+            print("✅ Project configuration already exists!")
+            print(f"   Location: {project_config.config_path}")
+            print()
+            print("Current configuration:")
+            print(f"   Name: {project_config.get_project_name()}")
+            print(f"   Type: {project_config.get_project_type()}")
+            print("   Features:")
+            for feature in ["claude_workspace", "claude_symlink", "review_agents",
+                            "nvm_setup", "env_sync_check"]:
+                enabled = "✅" if project_config.is_feature_enabled(feature) else "❌"
+                print(f"     {enabled} {feature}")
+            print()
+
+            if not args.template:
+                proceed = input("Reconfigure project? [y/N]: ").strip().lower()
+                if proceed not in ["y", "yes"]:
+                    return
+
+        # Get project info
+        project_name = (args.name
+                        or input(f"Project name [{repo_path.name}]: ").strip()
+                        or repo_path.name)
+
+        if args.type:
+            project_type = args.type
+        else:
+            print("\nSelect project type:")
+            print("1. tool - CLI tool or development utility")
+            print("2. web-app - Web application")
+            print("3. library - Reusable library/package")
+            print("4. generic - Generic project")
+
+            while True:
+                choice = input("Project type [1-4]: ").strip()
+                if choice == "1" or choice.lower() == "tool":
+                    project_type = "tool"
+                    break
+                elif choice == "2" or choice.lower() == "web-app":
+                    project_type = "web-app"
+                    break
+                elif choice == "3" or choice.lower() == "library":
+                    project_type = "library"
+                    break
+                elif choice == "4" or choice.lower() == "generic":
+                    project_type = "generic"
+                    break
+                else:
+                    print("Please enter 1, 2, 3, or 4")
+
+        # Apply template or prompt for features
+        if args.template == "cproj":
+            self._apply_cproj_template(project_config)
+        elif args.template == "trivalley":
+            self._apply_trivalley_template(project_config)
+        elif args.template == "minimal":
+            self._apply_minimal_template(project_config)
+        else:
+            self._prompt_for_features(project_config)
+
+        # Set project info
+        project_config.set_project_info(project_name, project_type)
+
+        # Save configuration
+        project_config.save()
+
+        print()
+        print("✅ Project configuration saved!")
+        print(f"   Location: {project_config.config_path}")
+        print()
+        print("🎉 Project is now configured for cproj!")
+
+    def _apply_cproj_template(self, config: ProjectConfig):
+        """Apply cproj project template"""
+        config.enable_feature("claude_workspace", True)
+        config.enable_feature("claude_symlink", True)
+        config.enable_feature("review_agents", True)
+        config.enable_feature("nvm_setup", True)
+        config.enable_feature("env_sync_check", True)
+
+    def _apply_trivalley_template(self, config: ProjectConfig):
+        """Apply trivalley project template"""
+        config.enable_feature("claude_workspace", True)
+        config.enable_feature("claude_symlink", False)
+        config.enable_feature("review_agents", True)
+        config.enable_feature("nvm_setup", True)
+        config.enable_feature("env_sync_check", True)
+
+    def _apply_minimal_template(self, config: ProjectConfig):
+        """Apply minimal project template"""
+        config.enable_feature("claude_workspace", False)
+        config.enable_feature("claude_symlink", False)
+        config.enable_feature("review_agents", False)
+        config.enable_feature("nvm_setup", False)
+        config.enable_feature("env_sync_check", False)
+
+    def _prompt_for_features(self, config: ProjectConfig):
+        """Prompt user for feature configuration"""
+        print("\n⚙️ Feature Configuration")
+        print("-" * 30)
+
+        features = [
+            ("claude_workspace", "Setup Claude workspace with commands/agents"),
+            ("claude_symlink", "Create .cursorrules symlink to CLAUDE.md"),
+            ("review_agents", "Enable automated review agents"),
+            ("nvm_setup", "Setup NVM integration for Node projects"),
+            ("env_sync_check", "Check for env file changes during review")
+        ]
+
+        for feature, description in features:
+            current = config.is_feature_enabled(feature)
+            default = "Y" if current else "N"
+            prompt = f"Enable {feature}? ({description}) [{default}]: "
+
+            response = input(prompt).strip().lower()
+            if not response:
+                enabled = current
+            else:
+                enabled = response in ["y", "yes"]
+
+            config.enable_feature(feature, enabled)
+
     def cmd_worktree_create(self, args):
         """Create worktree"""
         # Derive project context from current working directory
@@ -2092,6 +2324,13 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         )
 
         logger.debug(f"Using repository: {repo_path} (project: {project_name})")
+
+        # Load project configuration
+        project_config = ProjectConfig(repo_path)
+        if not project_config.config_path.exists():
+            print(f"⚠️  No project configuration found for {project_name}")
+            print("   Consider running 'cproj init-project' to configure project-specific features")
+            print()
 
         # Interactive prompt for branch name if not provided and
         # in interactive mode
@@ -2236,14 +2475,15 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
 
         agent_json.save()
 
-        # Handle CLAUDE.md/.cursorrules symlink
-        self._setup_claude_symlink(worktree_path, repo_path)
+        # Project-specific actions based on configuration
+        if project_config.is_feature_enabled("claude_symlink"):
+            self._setup_claude_symlink(worktree_path, repo_path)
 
-        # Setup nvm for Claude CLI if needed
-        self._setup_nvm_for_claude(worktree_path, node_env)
+        if project_config.is_feature_enabled("nvm_setup"):
+            self._setup_nvm_for_claude(worktree_path, node_env)
 
-        # Setup Claude workspace configuration
-        self._setup_claude_workspace(worktree_path, repo_path, args)
+        if project_config.is_feature_enabled("claude_workspace"):
+            self._setup_claude_workspace(worktree_path, repo_path, args)
 
         print(f"Created worktree: {worktree_path}")
         print(f"Branch: {args.branch}")
@@ -2279,23 +2519,27 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         repo_path = Path(agent_json.data["project"]["repo_path"])
         branch = agent_json.data["workspace"]["branch"]
 
-        # Check for env file differences
-        env_setup = EnvironmentSetup(worktree_path)
-        different_env_files = env_setup.check_env_differences(repo_path)
+        # Load project configuration to check if env sync is enabled
+        project_config = ProjectConfig(repo_path)
 
-        if different_env_files:
-            print("\n⚠️  Found differences in .env files:")
-            for file in different_env_files:
-                print(f"   • {file}")
+        # Check for env file differences if feature is enabled
+        if project_config.is_feature_enabled("env_sync_check"):
+            env_setup = EnvironmentSetup(worktree_path)
+            different_env_files = env_setup.check_env_differences(repo_path)
 
-            sync_response = input(
-                "\nDo you want to sync these .env files to the main repo? [y/N]: "
-            ).strip().lower()
-            if sync_response == 'y':
-                print("\n🔄 Syncing .env files...")
-                env_setup.sync_env_files(repo_path, backup=True)
-            else:
-                print("⏭️  Skipping .env file sync")
+            if different_env_files:
+                print("\n⚠️  Found differences in .env files:")
+                for file in different_env_files:
+                    print(f"   • {file}")
+
+                sync_response = input(
+                    "\nDo you want to sync these .env files to the main repo? [y/N]: "
+                ).strip().lower()
+                if sync_response == 'y':
+                    print("\n🔄 Syncing .env files...")
+                    env_setup.sync_env_files(repo_path, backup=True)
+                else:
+                    print("⏭️  Skipping .env file sync")
 
         git = GitWorktree(repo_path)
 

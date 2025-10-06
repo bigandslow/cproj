@@ -131,6 +131,7 @@ Thumbs.db
 
 # Project specific
 .cproj/
+!.cproj/project.yaml
 *.1password-ref
 .env.*
 !.env.example

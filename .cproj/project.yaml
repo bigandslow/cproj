@@ -1,0 +1,8 @@
+name: cproj
+type: tool
+features:
+  claude_workspace: true
+  claude_symlink: true
+  review_agents: true
+  nvm_setup: true
+  env_sync_check: true
