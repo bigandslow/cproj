@@ -706,6 +706,13 @@ class WorktreeStatus:
         self, local_status: Dict, branch_comparison: Dict, pr_status: Optional[Dict]
     ) -> str:
         """Determine overall status description"""
+        # Check if PR was merged and branch is behind main - needs cleanup or pull
+        if pr_status and pr_status.get("state") == "merged":
+            if branch_comparison["behind_main"] > 0:
+                return "cleanup"  # Merged PR, behind main - likely needs cleanup
+            else:
+                return "merged"
+
         if not local_status["is_clean"]:
             return "has_local_changes"
         elif branch_comparison["ahead_remote"] > 0:
@@ -714,14 +721,18 @@ class WorktreeStatus:
             return "needs_pull"
         elif branch_comparison["ahead_main"] > 0:
             if pr_status:
-                if pr_status.get("state") == "merged":
-                    return "merged"
-                elif pr_status.get("state") == "open":
+                if pr_status.get("state") == "open":
                     return "under_review"
                 else:
                     return "ready_for_pr"
             else:
                 return "ready_for_pr"
+        elif branch_comparison["behind_main"] > 0:
+            # Behind main with no local changes and no PR activity
+            if branch_comparison["ahead_main"] == 0 and local_status["is_clean"]:
+                return "cleanup"  # No work done, behind main - likely needs cleanup
+            else:
+                return "needs_pull"
         elif branch_comparison["is_synced_with_main"]:
             return "synced"
         else:
@@ -801,6 +812,7 @@ class WorktreeStatus:
                 "ready_for_pr": "🚀 Status: Ready for PR",
                 "under_review": "👀 Status: Under review",
                 "merged": "✅ Status: Merged",
+                "cleanup": "🧹 Status: Ready for cleanup",
                 "unknown": "❓ Status: Unknown"
             }
             lines.append(status_icons.get(overall, f"Status: {overall}"))
@@ -812,6 +824,64 @@ class WorktreeStatus:
 
         except Exception as e:
             return f"❌ Error getting status: {e}"
+
+    def format_terse(self) -> str:
+        """Format status in a terse, action-focused format for --all view"""
+        try:
+            status = self.get_comprehensive_status()
+
+            if "error" in status:
+                return f"ERROR {status['worktree_path']}: {status['error']}"
+
+            # Build a concise, action-oriented line
+            path_name = Path(status['worktree_path']).name
+            branch = status['branch']
+            overall = status['overall_status']
+
+            # Action-focused status messages
+            action_map = {
+                "has_local_changes": "COMMIT",
+                "needs_push": "PUSH",
+                "needs_pull": "PULL",
+                "ready_for_pr": "CREATE PR",
+                "under_review": "REVIEW",
+                "merged": "MERGED",
+                "synced": "SYNCED",
+                "cleanup": "CLEANUP",
+                "unknown": "CHECK"
+            }
+
+            action = action_map.get(overall, overall.upper())
+
+            # Build compact info
+            parts = [f"{action} {path_name} [{branch}]"]
+
+            # Add specific action details
+            local = status['local_status']
+            branch_comp = status['branch_comparison']
+
+            if overall == "has_local_changes":
+                changes = []
+                if local['staged']:
+                    changes.append(f"{len(local['staged'])}staged")
+                if local['modified']:
+                    changes.append(f"{len(local['modified'])}mod")
+                if local['untracked']:
+                    changes.append(f"{len(local['untracked'])}new")
+                if changes:
+                    parts.append(f"({', '.join(changes)})")
+            elif overall == "needs_push":
+                parts.append(f"({branch_comp['ahead_remote']} commits)")
+            elif overall == "needs_pull":
+                parts.append(f"({branch_comp['behind_remote']} commits)")
+            elif overall == "ready_for_pr":
+                if branch_comp['ahead_main'] > 0:
+                    parts.append(f"({branch_comp['ahead_main']} commits ahead)")
+
+            return " ".join(parts)
+
+        except Exception as e:
+            return f"ERROR {self.worktree_path}: {e}"
 
 
 class AgentJson:
@@ -1484,7 +1554,7 @@ class GitHubIntegration:
             result = subprocess.run([
                 "gh", "pr", "view", pr_number,
                 "--repo", f"{owner}/{repo}",
-                "--json", "state,title,author,reviewDecision,statusCheckRollupState,reviews"
+                "--json", "state,title,author,reviewDecision,statusCheckRollup,reviews,mergedAt,mergedBy"
             ], capture_output=True, text=True, check=True)
 
             pr_data = json.loads(result.stdout)
@@ -1499,15 +1569,31 @@ class GitHubIntegration:
 
             # Determine CI status
             ci_status = None
-            status_state = pr_data.get("statusCheckRollupState")
-            if status_state:
-                ci_status_map = {
-                    "SUCCESS": "✅ CI passing",
-                    "FAILURE": "❌ CI failing",
-                    "PENDING": "🟡 CI pending",
-                    "ERROR": "🔴 CI error"
-                }
-                ci_status = ci_status_map.get(status_state, f"CI {status_state.lower()}")
+            status_checks = pr_data.get("statusCheckRollup", [])
+            if status_checks:
+                # Analyze status checks - look for any failures
+                failed_checks = []
+                pending_checks = []
+                success_checks = []
+
+                for check in status_checks:
+                    conclusion = check.get("conclusion")
+                    status = check.get("status")
+                    state = check.get("state")  # For StatusContext objects
+
+                    if conclusion == "FAILURE" or state == "FAILURE":
+                        failed_checks.append(check.get("name", "Unknown"))
+                    elif conclusion == "PENDING" or status == "IN_PROGRESS" or state == "PENDING":
+                        pending_checks.append(check.get("name", "Unknown"))
+                    elif conclusion == "SUCCESS" or state == "SUCCESS":
+                        success_checks.append(check.get("name", "Unknown"))
+
+                if failed_checks:
+                    ci_status = f"❌ CI failing ({len(failed_checks)} checks)"
+                elif pending_checks:
+                    ci_status = f"🟡 CI pending ({len(pending_checks)} checks)"
+                elif success_checks:
+                    ci_status = f"✅ CI passing ({len(success_checks)} checks)"
 
             return {
                 "state": pr_data.get("state", "unknown").lower(),
@@ -1516,6 +1602,8 @@ class GitHubIntegration:
                 "review_decision": pr_data.get("reviewDecision"),
                 "reviews": reviews_info,
                 "ci_status": ci_status,
+                "merged_at": pr_data.get("mergedAt"),
+                "merged_by": pr_data.get("mergedBy", {}).get("login") if pr_data.get("mergedBy") else None,
                 "url": pr_url
             }
 
@@ -3224,8 +3312,9 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             git = GitWorktree(repo_path)
             worktrees = git.list_worktrees()
 
-            print(f"Repository: {repo_path}")
-            print(f"Found {len(worktrees)} worktree(s):\n")
+            # Collect worktree statuses and filter based on --detailed flag
+            actionable_worktrees = []
+            all_worktrees = []
 
             for wt in worktrees:
                 wt_path = Path(wt["path"])
@@ -3238,27 +3327,113 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                     if agent_json_path.exists():
                         agent_json = AgentJson(wt_path)
                         status = WorktreeStatus(wt_path, agent_json)
-                        print(status.format_status(args.detailed))
+                        comprehensive_status = status.get_comprehensive_status()
+                        overall_status = comprehensive_status.get("overall_status")
+
+                        # Determine if this worktree needs action
+                        needs_action = overall_status in [
+                            "has_local_changes", "needs_push", "needs_pull",
+                            "ready_for_pr", "under_review", "cleanup", "unknown"
+                        ]
+
+                        worktree_info = {
+                            "path": wt_path,
+                            "status_obj": status,
+                            "needs_action": needs_action,
+                            "type": "cproj"
+                        }
                     else:
                         # Plain worktree without cproj metadata
                         branch = wt.get("branch", "unknown")
-                        print(f"📁 {wt_path.name} [{branch}]")
                         local_status = git.get_local_status(wt_path)
-                        if local_status["is_clean"]:
-                            print("   ✅ Clean")
-                        else:
-                            changes = []
-                            if local_status["staged"]:
-                                changes.append(f"staged: {len(local_status['staged'])}")
-                            if local_status["modified"]:
-                                changes.append(f"modified: {len(local_status['modified'])}")
-                            if local_status["untracked"]:
-                                changes.append(f"untracked: {len(local_status['untracked'])}")
-                            print(f"   📝 Changes: {', '.join(changes)}")
-                        print()
+                        needs_action = not local_status["is_clean"]
+
+                        worktree_info = {
+                            "path": wt_path,
+                            "branch": branch,
+                            "local_status": local_status,
+                            "needs_action": needs_action,
+                            "type": "plain"
+                        }
+
+                    all_worktrees.append(worktree_info)
+                    if needs_action:
+                        actionable_worktrees.append(worktree_info)
+
                 except Exception as e:
-                    print(f"❌ Error reading status for {wt_path}: {e}")
-                    print()
+                    # Always show errored worktrees
+                    error_info = {
+                        "path": wt_path,
+                        "error": str(e),
+                        "needs_action": True,
+                        "type": "error"
+                    }
+                    all_worktrees.append(error_info)
+                    actionable_worktrees.append(error_info)
+
+            # Choose which worktrees to display
+            if args.detailed:
+                display_worktrees = all_worktrees
+                print(f"Repository: {repo_path}")
+                print(f"Found {len(all_worktrees)} worktree(s):\n")
+            else:
+                display_worktrees = actionable_worktrees
+                print(f"Repository: {repo_path}")
+                if len(actionable_worktrees) == 0:
+                    print("All worktrees are up to date! (Use --detailed to see all)")
+                    return
+                else:
+                    print(f"Found {len(actionable_worktrees)} worktree(s) needing attention:")
+                    print(f"(Use --detailed to see all {len(all_worktrees)} worktrees)\n")
+
+            # Display the selected worktrees
+            for wt_info in display_worktrees:
+                try:
+                    if wt_info["type"] == "cproj":
+                        if args.detailed:
+                            # Full detailed format
+                            print(wt_info["status_obj"].format_status(args.detailed))
+                        else:
+                            # Terse action-focused format
+                            print(wt_info["status_obj"].format_terse())
+                    elif wt_info["type"] == "plain":
+                        # Plain worktree formatting
+                        path_name = wt_info['path'].name
+                        branch = wt_info['branch']
+                        local = wt_info["local_status"]
+
+                        if args.detailed:
+                            print(f"📁 {path_name} [{branch}]")
+                            if local["is_clean"]:
+                                print("   ✅ Clean")
+                            else:
+                                changes = []
+                                if local["staged"]:
+                                    changes.append(f"staged: {len(local['staged'])}")
+                                if local["modified"]:
+                                    changes.append(f"modified: {len(local['modified'])}")
+                                if local["untracked"]:
+                                    changes.append(f"untracked: {len(local['untracked'])}")
+                                print(f"   📝 Changes: {', '.join(changes)}")
+                            print()
+                        else:
+                            # Terse format for plain worktrees
+                            if not local["is_clean"]:
+                                changes = []
+                                if local["staged"]:
+                                    changes.append(f"{len(local['staged'])}staged")
+                                if local["modified"]:
+                                    changes.append(f"{len(local['modified'])}mod")
+                                if local["untracked"]:
+                                    changes.append(f"{len(local['untracked'])}new")
+                                change_detail = f" ({', '.join(changes)})" if changes else ""
+                                print(f"COMMIT {path_name} [{branch}]{change_detail}")
+                            else:
+                                print(f"SYNCED {path_name} [{branch}]")
+                    elif wt_info["type"] == "error":
+                        print(f"ERROR {wt_info['path'].name}: {wt_info['error']}")
+                except Exception as e:
+                    print(f"ERROR {wt_info['path'].name}: {e}")
             return
 
         # Single worktree status - we know .agent.json exists at this point
