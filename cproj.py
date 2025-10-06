@@ -498,12 +498,320 @@ class GitWorktree:
 
         return None
 
+    def get_local_status(self, worktree_path: Path) -> Dict[str, Any]:
+        """Get local git status information"""
+        try:
+            # Check working directory status
+            result = self._run_git(
+                ["status", "--porcelain"],
+                cwd=worktree_path,
+                capture_output=True,
+                text=True
+            )
+
+            lines = result.stdout.strip().split('\n') if result.stdout.strip() else []
+
+            staged = []
+            modified = []
+            untracked = []
+
+            for line in lines:
+                if line.startswith('A ') or line.startswith('M ') or line.startswith('D '):
+                    staged.append(line[3:])
+                elif line.startswith(' M') or line.startswith(' D'):
+                    modified.append(line[3:])
+                elif line.startswith('??'):
+                    untracked.append(line[3:])
+                elif line.startswith('AM') or line.startswith('MM'):
+                    staged.append(line[3:])
+                    modified.append(line[3:])
+
+            return {
+                "staged": staged,
+                "modified": modified,
+                "untracked": untracked,
+                "is_clean": len(lines) == 0
+            }
+        except subprocess.CalledProcessError:
+            return {
+                "staged": [],
+                "modified": [],
+                "untracked": [],
+                "is_clean": True
+            }
+
+    def get_branch_comparison(
+        self, worktree_path: Path, branch: str, base_branch: str = "main"
+    ) -> Dict[str, Any]:
+        """Compare branch with main and remote"""
+        try:
+            # Get current branch if not specified
+            if not branch:
+                result = self._run_git(
+                    ["branch", "--show-current"],
+                    cwd=worktree_path,
+                    capture_output=True,
+                    text=True
+                )
+                branch = result.stdout.strip()
+
+            # Fetch to ensure we have latest info
+            try:
+                self._run_git(["fetch", "origin"], cwd=worktree_path, capture_output=True)
+            except subprocess.CalledProcessError:
+                pass  # Fetch may fail, continue anyway
+
+            # Check if remote branch exists
+            remote_branch = f"origin/{branch}"
+            try:
+                self._run_git(
+                    ["rev-parse", "--verify", remote_branch],
+                    cwd=worktree_path,
+                    capture_output=True
+                )
+                has_remote = True
+            except subprocess.CalledProcessError:
+                has_remote = False
+
+            # Compare with main branch
+            try:
+                ahead_main_result = self._run_git(
+                    ["rev-list", "--count", f"{base_branch}..{branch}"],
+                    cwd=worktree_path,
+                    capture_output=True,
+                    text=True
+                )
+                ahead_main = int(ahead_main_result.stdout.strip())
+            except (subprocess.CalledProcessError, ValueError):
+                ahead_main = 0
+
+            try:
+                behind_main_result = self._run_git(
+                    ["rev-list", "--count", f"{branch}..{base_branch}"],
+                    cwd=worktree_path,
+                    capture_output=True,
+                    text=True
+                )
+                behind_main = int(behind_main_result.stdout.strip())
+            except (subprocess.CalledProcessError, ValueError):
+                behind_main = 0
+
+            # Compare with remote branch if it exists
+            ahead_remote = 0
+            behind_remote = 0
+            if has_remote:
+                try:
+                    ahead_remote_result = self._run_git(
+                        ["rev-list", "--count", f"{remote_branch}..{branch}"],
+                        cwd=worktree_path,
+                        capture_output=True,
+                        text=True
+                    )
+                    ahead_remote = int(ahead_remote_result.stdout.strip())
+                except (subprocess.CalledProcessError, ValueError):
+                    ahead_remote = 0
+
+                try:
+                    behind_remote_result = self._run_git(
+                        ["rev-list", "--count", f"{branch}..{remote_branch}"],
+                        cwd=worktree_path,
+                        capture_output=True,
+                        text=True
+                    )
+                    behind_remote = int(behind_remote_result.stdout.strip())
+                except (subprocess.CalledProcessError, ValueError):
+                    behind_remote = 0
+
+            return {
+                "branch": branch,
+                "base_branch": base_branch,
+                "has_remote": has_remote,
+                "ahead_main": ahead_main,
+                "behind_main": behind_main,
+                "ahead_remote": ahead_remote,
+                "behind_remote": behind_remote,
+                "is_synced_with_main": ahead_main == 0 and behind_main == 0,
+                "is_synced_with_remote": ahead_remote == 0 and behind_remote == 0
+            }
+        except subprocess.CalledProcessError:
+            return {
+                "branch": branch,
+                "base_branch": base_branch,
+                "has_remote": False,
+                "ahead_main": 0,
+                "behind_main": 0,
+                "ahead_remote": 0,
+                "behind_remote": 0,
+                "is_synced_with_main": True,
+                "is_synced_with_remote": True
+            }
+
     def _run_git(
         self, args: List[str], cwd: Optional[Path] = None, **kwargs
     ) -> subprocess.CompletedProcess:
         """Run git command"""
         cmd = ["git", "-C", str(cwd or self.repo_path)] + args
         return subprocess.run(cmd, check=True, **kwargs)
+
+
+class WorktreeStatus:
+    """Comprehensive status information for a worktree"""
+
+    def __init__(self, worktree_path: Path, agent_json: Optional['AgentJson'] = None):
+        self.worktree_path = worktree_path
+        self.agent_json = agent_json
+        self._local_status = None
+        self._branch_comparison = None
+        self._pr_status = None
+
+    def get_comprehensive_status(self) -> Dict[str, Any]:
+        """Get all status information"""
+        if not self.agent_json:
+            return {"error": "Not a cproj worktree"}
+
+        repo_path = Path(self.agent_json.data["project"]["repo_path"])
+        branch = self.agent_json.data["workspace"]["branch"]
+        base_branch = self.agent_json.data["workspace"]["base"]
+
+        git = GitWorktree(repo_path)
+
+        # Get local status
+        local_status = git.get_local_status(self.worktree_path)
+
+        # Get branch comparison
+        branch_comparison = git.get_branch_comparison(self.worktree_path, branch, base_branch)
+
+        # Get PR status if available
+        pr_status = None
+        pr_url = self.agent_json.data["links"].get("pr")
+        if pr_url and GitHubIntegration.is_available():
+            pr_status = GitHubIntegration.get_pr_status_from_url(pr_url)
+
+        return {
+            "worktree_path": str(self.worktree_path),
+            "project_name": self.agent_json.data["project"]["name"],
+            "branch": branch,
+            "base_branch": base_branch,
+            "created_at": self.agent_json.data["workspace"]["created_at"],
+            "local_status": local_status,
+            "branch_comparison": branch_comparison,
+            "pr_status": pr_status,
+            "links": self.agent_json.data["links"],
+            "overall_status": self._determine_overall_status(
+                local_status, branch_comparison, pr_status
+            )
+        }
+
+    def _determine_overall_status(
+        self, local_status: Dict, branch_comparison: Dict, pr_status: Optional[Dict]
+    ) -> str:
+        """Determine overall status description"""
+        if not local_status["is_clean"]:
+            return "has_local_changes"
+        elif branch_comparison["ahead_remote"] > 0:
+            return "needs_push"
+        elif branch_comparison["behind_remote"] > 0:
+            return "needs_pull"
+        elif branch_comparison["ahead_main"] > 0:
+            if pr_status:
+                if pr_status.get("state") == "merged":
+                    return "merged"
+                elif pr_status.get("state") == "open":
+                    return "under_review"
+                else:
+                    return "ready_for_pr"
+            else:
+                return "ready_for_pr"
+        elif branch_comparison["is_synced_with_main"]:
+            return "synced"
+        else:
+            return "unknown"
+
+    def format_status(self, detailed: bool = True) -> str:
+        """Format status for human reading"""
+        try:
+            status = self.get_comprehensive_status()
+
+            if "error" in status:
+                return f"❌ {status['error']}"
+
+            lines = []
+
+            # Header
+            lines.append(f"📁 {status['worktree_path']}")
+
+            # Branch info
+            branch_comp = status['branch_comparison']
+            branch_line = f"🌿 {status['branch']} → {status['base_branch']}"
+
+            if branch_comp['ahead_main'] > 0 or branch_comp['behind_main'] > 0:
+                branch_line += (
+                    f" (ahead {branch_comp['ahead_main']}, "
+                    f"behind {branch_comp['behind_main']})"
+                )
+
+            lines.append(branch_line)
+
+            # Local status
+            local = status['local_status']
+            if not local['is_clean']:
+                local_parts = []
+                if local['modified']:
+                    local_parts.append(f"{len(local['modified'])} modified")
+                if local['staged']:
+                    local_parts.append(f"{len(local['staged'])} staged")
+                if local['untracked']:
+                    local_parts.append(f"{len(local['untracked'])} untracked")
+                lines.append(f"📝 Local: {', '.join(local_parts)}")
+
+            # Remote status
+            if branch_comp['has_remote']:
+                if branch_comp['ahead_remote'] > 0:
+                    lines.append(f"🔄 Remote: ↑ {branch_comp['ahead_remote']} commits to push")
+                elif branch_comp['behind_remote'] > 0:
+                    lines.append(f"🔄 Remote: ↓ {branch_comp['behind_remote']} commits to pull")
+
+            # PR status
+            pr_status = status['pr_status']
+            if pr_status:
+                state = pr_status.get('state', 'unknown')
+                pr_line = f"📋 PR: {pr_status.get('title', 'Unknown')} ({state}"
+
+                if state == 'open':
+                    reviews = pr_status.get('reviews', {})
+                    if reviews:
+                        approved = reviews.get('approved', 0)
+                        total = reviews.get('total', 0)
+                        pr_line += f", {approved}/{total} approvals"
+
+                    ci_status = pr_status.get('ci_status')
+                    if ci_status:
+                        pr_line += f", {ci_status}"
+
+                pr_line += ")"
+                lines.append(pr_line)
+
+            # Overall status
+            overall = status['overall_status']
+            status_icons = {
+                "synced": "✅ Status: In sync with main",
+                "has_local_changes": "📝 Status: Has local changes",
+                "needs_push": "⬆️ Status: Ready to push",
+                "needs_pull": "⬇️ Status: Needs pull",
+                "ready_for_pr": "🚀 Status: Ready for PR",
+                "under_review": "👀 Status: Under review",
+                "merged": "✅ Status: Merged",
+                "unknown": "❓ Status: Unknown"
+            }
+            lines.append(status_icons.get(overall, f"Status: {overall}"))
+
+            if detailed and status['links']['linear']:
+                lines.append(f"🔗 Linear: {status['links']['linear']}")
+
+            return '\n'.join(lines)
+
+        except Exception as e:
+            return f"❌ Error getting status: {e}"
 
 
 class AgentJson:
@@ -1157,6 +1465,63 @@ class GitHubIntegration:
         except subprocess.CalledProcessError:
             return False
 
+    @staticmethod
+    def get_pr_status_from_url(pr_url: str) -> Optional[Dict[str, Any]]:
+        """Get PR status information from GitHub URL"""
+        if not GitHubIntegration.is_available():
+            return None
+
+        try:
+            # Extract owner/repo/number from URL
+            import re
+            match = re.search(r'github\.com/([^/]+)/([^/]+)/pull/(\d+)', pr_url)
+            if not match:
+                return None
+
+            owner, repo, pr_number = match.groups()
+
+            # Get PR info using gh CLI
+            result = subprocess.run([
+                "gh", "pr", "view", pr_number,
+                "--repo", f"{owner}/{repo}",
+                "--json", "state,title,author,reviewDecision,statusCheckRollupState,reviews"
+            ], capture_output=True, text=True, check=True)
+
+            pr_data = json.loads(result.stdout)
+
+            # Process review information
+            reviews_info = {"approved": 0, "total": 0}
+            if "reviews" in pr_data and pr_data["reviews"]:
+                reviews_info["total"] = len(pr_data["reviews"])
+                for review in pr_data["reviews"]:
+                    if review.get("state") == "APPROVED":
+                        reviews_info["approved"] += 1
+
+            # Determine CI status
+            ci_status = None
+            status_state = pr_data.get("statusCheckRollupState")
+            if status_state:
+                ci_status_map = {
+                    "SUCCESS": "✅ CI passing",
+                    "FAILURE": "❌ CI failing",
+                    "PENDING": "🟡 CI pending",
+                    "ERROR": "🔴 CI error"
+                }
+                ci_status = ci_status_map.get(status_state, f"CI {status_state.lower()}")
+
+            return {
+                "state": pr_data.get("state", "unknown").lower(),
+                "title": pr_data.get("title", "Unknown"),
+                "author": pr_data.get("author", {}).get("login", "Unknown"),
+                "review_decision": pr_data.get("reviewDecision"),
+                "reviews": reviews_info,
+                "ci_status": ci_status,
+                "url": pr_url
+            }
+
+        except (subprocess.CalledProcessError, json.JSONDecodeError, Exception):
+            return None
+
 
 class CprojCLI:
     """Main CLI application"""
@@ -1513,6 +1878,13 @@ class CprojCLI:
         # status command
         status_parser = subparsers.add_parser("status", aliases=["st"], help="Show status")
         status_parser.add_argument("path", nargs="?", help="Worktree path")
+        status_parser.add_argument(
+            "--all", action="store_true", help="Show status of all worktrees"
+        )
+        status_parser.add_argument(
+            "--detailed", action="store_true",
+            help="Show detailed status information"
+        )
 
         # cleanup command
         cleanup_parser = subparsers.add_parser("cleanup", help="Cleanup worktrees")
@@ -2831,34 +3203,79 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
 
     def cmd_status(self, args):
         """Show status"""
+        # Check if we're in a cproj worktree or should default to --all
         if args.path:
             worktree_path = Path(args.path)
         else:
             worktree_path = Path.cwd()
 
         agent_json_path = worktree_path / ".cproj" / ".agent.json"
-        if not agent_json_path.exists():
-            raise CprojError(
-                "Not in a cproj worktree (no .agent.json found in .cproj "
-                "directory). Run from worktree root directory."
-            )
 
+        # If not in a cproj worktree and --all not explicitly set, default to --all
+        if not agent_json_path.exists() and not args.all:
+            args.all = True
+
+        if args.all:
+            # Show status for all worktrees
+            repo_path = self._find_git_root(Path.cwd())
+            if not repo_path:
+                raise CprojError("Not in a git repository")
+
+            git = GitWorktree(repo_path)
+            worktrees = git.list_worktrees()
+
+            print(f"Repository: {repo_path}")
+            print(f"Found {len(worktrees)} worktree(s):\n")
+
+            for wt in worktrees:
+                wt_path = Path(wt["path"])
+                # Skip main repo unless it has .cproj/.agent.json
+                agent_json_path = wt_path / ".cproj" / ".agent.json"
+                if wt_path == repo_path and not agent_json_path.exists():
+                    continue
+
+                try:
+                    if agent_json_path.exists():
+                        agent_json = AgentJson(wt_path)
+                        status = WorktreeStatus(wt_path, agent_json)
+                        print(status.format_status(args.detailed))
+                    else:
+                        # Plain worktree without cproj metadata
+                        branch = wt.get("branch", "unknown")
+                        print(f"📁 {wt_path.name} [{branch}]")
+                        local_status = git.get_local_status(wt_path)
+                        if local_status["is_clean"]:
+                            print("   ✅ Clean")
+                        else:
+                            changes = []
+                            if local_status["staged"]:
+                                changes.append(f"staged: {len(local_status['staged'])}")
+                            if local_status["modified"]:
+                                changes.append(f"modified: {len(local_status['modified'])}")
+                            if local_status["untracked"]:
+                                changes.append(f"untracked: {len(local_status['untracked'])}")
+                            print(f"   📝 Changes: {', '.join(changes)}")
+                        print()
+                except Exception as e:
+                    print(f"❌ Error reading status for {wt_path}: {e}")
+                    print()
+            return
+
+        # Single worktree status - we know .agent.json exists at this point
         agent_json = AgentJson(worktree_path)
 
         if args.json:
             print(json.dumps(agent_json.data, indent=2))
             return
 
-        print(f"Workspace: {worktree_path}")
-        print(f"Project: {agent_json.data['project']['name']}")
-        print(f"Branch: {agent_json.data['workspace']['branch']}")
-        print(f"Base: {agent_json.data['workspace']['base']}")
-        print(f"Created: {agent_json.data['workspace']['created_at']}")
+        # Enhanced status using WorktreeStatus
+        repo_path = self._find_git_root(worktree_path)
+        if not repo_path:
+            raise CprojError("Not in a git repository")
 
-        if agent_json.data["links"]["linear"]:
-            print(f"Linear: {agent_json.data['links']['linear']}")
-        if agent_json.data["links"]["pr"]:
-            print(f"PR: {agent_json.data['links']['pr']}")
+        git = GitWorktree(repo_path)
+        status = WorktreeStatus(worktree_path, agent_json)
+        print(status.format_status(args.detailed))
 
     def cmd_cleanup(self, args):
         """Cleanup worktrees"""

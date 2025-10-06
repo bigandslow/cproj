@@ -54,6 +54,10 @@ $PYTHON_VERSION -m venv "$INSTALL_DIR/venv"
 # Activate virtual environment
 source "$INSTALL_DIR/venv/bin/activate"
 
+# Install dependencies
+echo -e "${BLUE}Installing dependencies...${NC}"
+pip install --quiet PyYAML
+
 # Copy cproj.py to installation directory
 echo -e "${BLUE}Installing cproj...${NC}"
 cp "$SCRIPT_DIR/cproj.py" "$INSTALL_DIR/"
