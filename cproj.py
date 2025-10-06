@@ -758,6 +758,54 @@ class EnvironmentSetup:
                 except OSError as e:
                     print(f"Warning: Failed to copy {rel_path}: {e}")
 
+    def check_env_differences(self, main_repo_path: Path) -> List[Path]:
+        """Check for differences in .env files between worktree and main repo"""
+        # Find all .env* files in the current worktree
+        env_patterns = ["**/.env", "**/.env.*"]
+        found_files: List[Path] = []
+        different_files: List[Path] = []
+
+        for pattern in env_patterns:
+            found_files.extend(self.worktree_path.glob(pattern))
+
+        for source_file in found_files:
+            # Skip hidden directories and common build/cache dirs
+            if any(
+                part.startswith(".")
+                and part
+                not in [
+                    ".env",
+                    ".env.local",
+                    ".env.development",
+                    ".env.test",
+                    ".env.production",
+                    ".env.example",
+                ]
+                for part in source_file.relative_to(self.worktree_path).parts[:-1]
+            ):
+                continue
+
+            # Calculate relative path and destination
+            rel_path = source_file.relative_to(self.worktree_path)
+            dest_file = main_repo_path / rel_path
+
+            # Check if files differ
+            if dest_file.exists():
+                try:
+                    with open(source_file, 'r') as sf, open(dest_file, 'r') as df:
+                        source_content = sf.read()
+                        dest_content = df.read()
+
+                    if source_content != dest_content:
+                        different_files.append(rel_path)
+                except (IOError, UnicodeDecodeError):
+                    continue
+            else:
+                # New file in worktree
+                different_files.append(rel_path)
+
+        return different_files
+
     def sync_env_files(self, main_repo_path: Path, specific_file: Optional[str] = None,
                        dry_run: bool = False, backup: bool = False):
         """Sync .env files from current worktree back to main repo"""
@@ -2230,6 +2278,24 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         agent_json = AgentJson(worktree_path)
         repo_path = Path(agent_json.data["project"]["repo_path"])
         branch = agent_json.data["workspace"]["branch"]
+
+        # Check for env file differences
+        env_setup = EnvironmentSetup(worktree_path)
+        different_env_files = env_setup.check_env_differences(repo_path)
+
+        if different_env_files:
+            print("\n⚠️  Found differences in .env files:")
+            for file in different_env_files:
+                print(f"   • {file}")
+
+            sync_response = input(
+                "\nDo you want to sync these .env files to the main repo? [y/N]: "
+            ).strip().lower()
+            if sync_response == 'y':
+                print("\n🔄 Syncing .env files...")
+                env_setup.sync_env_files(repo_path, backup=True)
+            else:
+                print("⏭️  Skipping .env file sync")
 
         git = GitWorktree(repo_path)
 
