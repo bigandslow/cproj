@@ -170,10 +170,14 @@ class ProjectConfig:
         features = default_config["features"].copy()
         features.update(config.get("features", {}))
 
+        custom_actions = default_config.get("custom_actions", [])
+        custom_actions.extend(config.get("custom_actions", []))
+
         return {
             "name": config.get("name", self.repo_path.name),
             "type": config.get("type", "generic"),
-            "features": features
+            "features": features,
+            "custom_actions": custom_actions
         }
 
     def _get_default_config(self) -> Dict[str, Any]:
@@ -187,7 +191,8 @@ class ProjectConfig:
                 "review_agents": False,
                 "nvm_setup": False,
                 "env_sync_check": False
-            }
+            },
+            "custom_actions": []
         }
 
     def save(self):
@@ -219,6 +224,16 @@ class ProjectConfig:
         """Set project name and type"""
         self._config["name"] = name
         self._config["type"] = project_type
+
+    def get_custom_actions(self) -> List[Dict[str, Any]]:
+        """Get list of custom actions"""
+        return self._config.get("custom_actions", [])
+
+    def add_custom_action(self, action: Dict[str, Any]):
+        """Add a custom action"""
+        if "custom_actions" not in self._config:
+            self._config["custom_actions"] = []
+        self._config["custom_actions"].append(action)
 
 
 class GitWorktree:
@@ -2261,6 +2276,14 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         config.enable_feature("nvm_setup", True)
         config.enable_feature("env_sync_check", True)
 
+        # Add custom action to copy workspace file
+        config.add_custom_action({
+            "type": "copy_workspace_file",
+            "description": "Copy trivalley.code-workspace with worktree-specific name",
+            "source": "trivalley.code-workspace",
+            "destination_pattern": "{worktree_dir}_trivalley.code-workspace"
+        })
+
     def _apply_minimal_template(self, config: ProjectConfig):
         """Apply minimal project template"""
         config.enable_feature("claude_workspace", False)
@@ -2294,6 +2317,46 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                 enabled = response in ["y", "yes"]
 
             config.enable_feature(feature, enabled)
+
+    def _execute_custom_actions(self, project_config: ProjectConfig,
+                                worktree_path: Path, repo_path: Path):
+        """Execute custom actions defined in project configuration"""
+        actions = project_config.get_custom_actions()
+
+        for action in actions:
+            action_type = action.get("type")
+
+            if action_type == "copy_workspace_file":
+                self._execute_copy_workspace_file(action, worktree_path, repo_path)
+            else:
+                logger.warning(f"Unknown custom action type: {action_type}")
+
+    def _execute_copy_workspace_file(self, action: Dict[str, Any],
+                                     worktree_path: Path, repo_path: Path):
+        """Execute copy workspace file action"""
+        source = action.get("source")
+        destination_pattern = action.get("destination_pattern")
+
+        if not source or not destination_pattern:
+            logger.warning("copy_workspace_file action missing source or destination_pattern")
+            return
+
+        source_file = repo_path / source
+        if not source_file.exists():
+            logger.warning(f"Source workspace file not found: {source_file}")
+            return
+
+        # Replace template variables
+        worktree_dir = worktree_path.name
+        destination_name = destination_pattern.format(worktree_dir=worktree_dir)
+        destination_file = worktree_path / destination_name
+
+        try:
+            import shutil
+            shutil.copy2(source_file, destination_file)
+            print(f"📁 Copied workspace file: {destination_name}")
+        except OSError as e:
+            logger.warning(f"Failed to copy workspace file: {e}")
 
     def cmd_worktree_create(self, args):
         """Create worktree"""
@@ -2484,6 +2547,9 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
 
         if project_config.is_feature_enabled("claude_workspace"):
             self._setup_claude_workspace(worktree_path, repo_path, args)
+
+        # Execute any custom actions
+        self._execute_custom_actions(project_config, worktree_path, repo_path)
 
         print(f"Created worktree: {worktree_path}")
         print(f"Branch: {args.branch}")

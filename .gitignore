@@ -130,7 +130,7 @@ ehthumbs.db
 Thumbs.db
 
 # Project specific
-.cproj/
+.cproj/*
 !.cproj/project.yaml
 *.1password-ref
 .env.*

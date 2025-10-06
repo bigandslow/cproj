@@ -1,8 +1,8 @@
 name: cproj
 type: tool
 features:
-  claude_workspace: true
-  claude_symlink: true
-  review_agents: true
-  nvm_setup: true
-  env_sync_check: true
+  claude_workspace: true      # Setup .claude directory with commands/agents
+  claude_symlink: true        # Create .cursorrules symlink to CLAUDE.md
+  review_agents: true         # Enable automated review agents
+  nvm_setup: true            # Create setup-claude.sh for Node integration
+  env_sync_check: true       # Check for env file changes during review
