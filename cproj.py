@@ -3386,6 +3386,30 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                     print(f"Found {len(actionable_worktrees)} worktree(s) needing attention:")
                     print(f"(Use --detailed to see all {len(all_worktrees)} worktrees)\n")
 
+            # Sort worktrees by action priority
+            action_priority = {
+                "has_local_changes": 1,  # COMMIT
+                "needs_push": 2,         # PUSH
+                "ready_for_pr": 3,       # CREATE PR
+                "under_review": 4,       # REVIEW
+                "needs_pull": 5,         # PULL
+                "unknown": 6,            # CHECK
+                "cleanup": 7             # CLEANUP
+            }
+
+            def get_sort_key(wt_info):
+                if wt_info["type"] == "cproj":
+                    status = wt_info["status_obj"].get_comprehensive_status()
+                    overall_status = status.get("overall_status", "unknown")
+                    return action_priority.get(overall_status, 999)
+                elif wt_info["type"] == "plain":
+                    # Plain worktrees with changes get priority 1 (COMMIT)
+                    return 1 if wt_info["needs_action"] else 999
+                else:
+                    return 999  # Errors last
+
+            display_worktrees.sort(key=get_sort_key)
+
             # Display the selected worktrees
             for wt_info in display_worktrees:
                 try:
