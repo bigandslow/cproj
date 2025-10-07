@@ -1,36 +1,97 @@
-# cproj - Intelligent Project Workflow Manager
+# cproj - AI-First Parallel Development Orchestrator
 
-A powerful CLI tool that streamlines software development workflows using Git worktrees, AI-powered agents, and automated project management. Create isolated workspaces, generate comprehensive tickets, perform AI code reviews, and manage the complete development lifecycle.
+**Scale your development with multiple AI agents working in parallel.** cproj enables enterprise-grade isolation using Git worktrees, intelligent environment management, and complete SDLC automation - from requirements to deployment.
 
 ## Overview
 
-cproj transforms how you work on software projects by:
-- **Creating isolated workspaces** for each feature/bug using Git worktrees
-- **Generating detailed Linear tickets** using AI agents (product manager, UX designer, engineer)  
-- **Performing comprehensive code reviews** with specialized AI agents
-- **Automating environment setup** (Python/uv, Node.js, Java)
-- **Managing the complete workflow** from idea to merged code
+**Orchestrate multiple AI agents working simultaneously** on different features, fixes, and tasks in completely isolated environments. cproj transforms software development by enabling **parallel AI-driven workflows** with enterprise-grade safety and intelligent automation.
 
-## Key Features
+### **Why cproj?**
+- **Multiple AI agents coding in parallel** - Scale development beyond human limitations
+- **Zero-risk experimentation** - Try multiple approaches simultaneously, discard failures instantly
+- **Complete SDLC automation** - From requirements gathering to security review and deployment
+- **Project-aware intelligence** - Automatically adapts to your tech stack and workflow
+- **Enterprise-grade isolation** - Git worktrees ensure no interference between parallel efforts
 
-### 🚀 **Intelligent Workflow Automation**
-- **AI-powered ticket creation** with `add-ticket` command using specialized agents
-- **Comprehensive code reviews** with `review-code` command and security analysis
-- **Smart workspace management** with automatic environment detection
+## Core Capabilities
 
-### 🔧 **Development Environment**
-- **Git worktree isolation** - Work on multiple branches simultaneously
-- **Automatic environment setup** - Python (uv), Node.js (nvm), Java builds
-- **IDE integration** - Auto-launch terminals and editors on macOS
+### 🤖 **Parallel AI Development Orchestration**
+- **Multiple AI agents working simultaneously** on different features, fixes, and experiments
+- **Agent specialization** - Requirements gathering, development, review, security, testing
+- **Coordination layer** prevents conflicts and manages handoffs between parallel efforts
+- **Scale beyond human limitations** - Run dozens of development streams concurrently
 
-### 📊 **Project Management** 
-- **Linear integration** - Create detailed tickets with AI assistance
-- **GitHub integration** - Automated PR creation and merging with `gh` CLI
-- **Progress tracking** - Persistent workspace metadata and status
+### 🔄 **Complete SDLC Automation**
+- **Requirements to deployment pipeline** - Product manager → UX designer → Senior engineer → Security reviewer → QA tester
+- **AI-powered ticket generation** with comprehensive specs and implementation plans via `add-ticket`
+- **Automated code review** with specialized agents for quality, security, and testing concerns via `review-code`
+- **End-to-end automation** from initial idea to production-ready code
 
-### 🧹 **Maintenance & Cleanup**
-- **Intelligent cleanup** - Remove old/merged worktrees with `--force` support
-- **Workspace organization** - Clean `.cproj` directory structure
+### 🛡️ **Risk-Free Experimentation**
+- **Git worktree isolation** - Each agent gets its own workspace that can be instantly discarded
+- **Parallel exploration** - Try multiple approaches simultaneously, keep the best results
+- **Safe rollback** - Failed experiments don't affect main codebase or other parallel work
+- **Zero-downtime development** - Main branch stays stable while agents experiment
+
+### ⚙️ **Project-Specific Environment Configuration**
+- **Automatic language detection** and environment setup (Python/uv, Node.js/nvm, Java/Maven/Gradle)
+- **Per-workspace configuration** via `.agent.json` metadata tracking creation, ownership, and purpose
+- **Custom setup scripts** and environment variables adapted to each project's needs
+- **Dependency isolation** - Each worktree gets its own virtual environment and package installs
+
+### 📊 **Intelligent Workspace Management**
+- **Real-time visibility** into all active workspaces, their status, and progress
+- **Progress tracking** across multiple parallel development efforts
+- **Resource optimization** - Automatic cleanup of stale, completed, or failed workspaces
+- **Workspace metadata** tracks creation time, author, purpose, linked tickets, and PR status
+
+### 🔗 **Seamless Integration Flow**
+- **Automated testing and validation** before integration to main branch
+- **GitHub PR automation** with configured reviewers and intelligent descriptions
+- **Linear ticket integration** for comprehensive project management and tracking
+- **Conflict resolution assistance** when merging multiple parallel development streams
+
+## Key Differentiators
+
+**What makes cproj unique:**
+
+- **🎯 AI-first workflow** - Designed from the ground up for multiple autonomous agents, not adapted from human-centric tools
+- **🏗️ Enterprise-grade isolation** - Uses Git worktrees (not just branches) for true environment separation
+- **📈 Built for scale** - Handle dozens of parallel development streams without performance degradation
+- **🔧 Project-aware intelligence** - Automatically adapts to each repository's technology stack and workflow patterns
+- **🛡️ Full lifecycle coverage** - From initial idea through production deployment with comprehensive automation
+- **⚡ Zero-risk innovation** - Experiment fearlessly with instant rollback and parallel approach testing
+
+## Quick Start
+
+Get up and running with parallel AI development in minutes:
+
+```bash
+# 1. Install cproj
+make install
+
+# 2. Initialize project configuration
+cproj init
+# Configures: repo path, base branch, environment preferences, integrations
+
+# 3. Generate AI-powered tickets
+add-ticket "Add OAuth login system"
+
+# 4. Create isolated workspace with auto-setup
+cproj w create --branch feature/oauth-login
+# Auto-detects and sets up: Python/Node/Java environments
+
+# 5. Multiple AI agents work in parallel
+# Each agent gets its own isolated workspace and environment
+
+# 6. AI-powered code review
+review-code --full
+
+# 7. Integrate changes
+cproj merge
+```
+
+**🚀 You're now running parallel AI development!** Each agent works in complete isolation while cproj orchestrates the full development lifecycle.
 
 ## Installation
 
@@ -70,103 +131,125 @@ make uninstall
 # or directly: ./uninstall.sh
 ```
 
-## Complete Development Workflow
+## Parallel AI Development Workflows
 
-cproj provides a complete development workflow from initial idea to merged code. Here's the step-by-step process:
+### 🚀 **Single Agent Workflow**
+Perfect for focused development tasks:
 
-### 1️⃣ **Initial Setup**
 ```bash
-# Initialize cproj configuration (one-time setup)
-cproj init
-# Configure Linear integration, GitHub reviewers, environment preferences
-```
-
-### 2️⃣ **Idea to Ticket (AI-Powered)**
-```bash
-# Generate comprehensive Linear tickets using AI agents
+# 1. Generate comprehensive requirements
 add-ticket "Add user authentication system"
-```
-This command uses specialized AI agents to create detailed tickets:
-- **Product Manager Agent**: Turns high-level ideas into crisp PRDs
-- **UX Designer Agent**: Creates user-centric design specifications  
-- **Senior Engineer Agent**: Plans technical implementation with tests
+# → Product Manager, UX Designer, and Senior Engineer agents collaborate
 
-### 3️⃣ **Create Development Workspace**
-```bash
-# Create isolated worktree for your feature
+# 2. Create isolated workspace
 cproj w create --branch feature/user-auth
-```
-Automatically sets up:
-- ✅ Git worktree with new branch
-- ✅ Python environment (uv), Node.js (nvm), Java build
-- ✅ Terminal and IDE integration
-- ✅ Workspace metadata tracking
+# → Automatic environment setup (Python/uv, Node/nvm, Java)
 
-### 4️⃣ **Development & Testing**
+# 3. AI agent develops in isolation
+# → Write code, tests, documentation in dedicated worktree
+
+# 4. Comprehensive AI review
+review-code --full
+# → Senior Developer, QA Engineer, Security Reviewer agents
+
+# 5. Integrate changes
+cproj review open && cproj merge
+```
+
+### 🔄 **Multi-Agent Parallel Workflow**
+Scale development with multiple agents working simultaneously:
+
+```bash
+# Generate multiple feature tickets
+add-ticket "OAuth integration"
+add-ticket "User dashboard"
+add-ticket "API rate limiting"
+
+# Launch parallel development streams
+cproj w create --branch feature/oauth-login      # Agent 1
+cproj w create --branch feature/dashboard        # Agent 2
+cproj w create --branch feature/rate-limiting    # Agent 3
+
+# Each agent works independently in isolated environments
+# → No conflicts, no interference, complete isolation
+
+# Monitor all parallel efforts
+cproj list
+# Shows status of all active workspaces and their progress
+
+# Agents complete and integrate independently
+review-code --full  # In each workspace
+cproj merge         # When ready
+```
+
+### ⚡ **Experimental Parallel Workflow**
+Try multiple approaches simultaneously, keep the best:
+
+```bash
+# Create multiple workspaces for the same problem
+cproj w create --branch experiment/approach-a    # Traditional solution
+cproj w create --branch experiment/approach-b    # Innovative approach
+cproj w create --branch experiment/approach-c    # Alternative framework
+
+# Agents explore different solutions in parallel
+# → Risk-free experimentation with instant rollback
+
+# Compare results and choose the best
+cproj status experiment/approach-a
+cproj status experiment/approach-b
+cproj status experiment/approach-c
+
+# Keep the winner, discard the others
+cproj merge --branch experiment/approach-b       # Merge the best
+cproj cleanup --pattern "experiment/approach-*"  # Clean up others
+```
+
+### 🛠️ **Development & Testing**
+Each workspace provides complete isolation:
+
 ```bash
 # Work in your isolated environment
+cd $(cproj status --workspace-path)
 # Make changes, write tests, commit code
-git add . && git commit -m "Implement user authentication"
-```
+git add . && git commit -m "Implement feature"
 
-### 5️⃣ **AI-Powered Code Review**
-```bash
-# Run comprehensive AI code review before submitting
-review-code
-```
-Specialized review agents analyze:
-- **Senior Developer**: Code quality, architecture, best practices
-- **QA Engineer**: Test coverage, edge cases, quality assurance  
-- **Security Reviewer**: Vulnerability assessment, OWASP compliance
-
-Options for targeted reviews:
-```bash
-review-code --security-only    # Security review only
-review-code --full            # Review entire codebase
-review-code --qa-only         # QA review only
-```
-
-### 6️⃣ **Create Pull Request**
-```bash
-# Open PR for human review
-cproj review open
-```
-Automatically:
-- ✅ Pushes branch to remote
-- ✅ Creates GitHub PR with description
-- ✅ Assigns configured reviewers
-- ✅ Links to Linear ticket
-
-### 7️⃣ **Final Review & Merge**
-```bash
-# After approval, merge and cleanup
-cproj merge
-```
-Handles the complete merge process:
-- ✅ Merges PR (with squash option)
-- ✅ Deletes remote branch
-- ✅ Removes local worktree
-- ✅ Updates workspace metadata
-
-### 🧹 **Maintenance & Cleanup**
-```bash
-# Clean up old/stale worktrees
-cproj cleanup                    # Interactive cleanup
-cproj cleanup --older-than 14   # Remove worktrees older than 14 days
-cproj cleanup --force           # Force remove dirty worktrees
-cproj cleanup --newer-than 1    # Remove recent test worktrees
+# Environment is automatically configured
+# ✅ Python virtual environment with dependencies
+# ✅ Node.js version management and packages
+# ✅ Java build tools and configurations
+# ✅ IDE integration and terminal automation
 ```
 
 ### 📊 **Monitoring & Status**
+Real-time visibility across all parallel efforts:
+
 ```bash
-# List all active worktrees
+# List all active worktrees with status
 cproj list
 
-# Check current workspace status  
-cproj status
+# Detailed workspace information
+cproj status                    # Current workspace
+cproj status feature/oauth      # Specific workspace
 
 # View Linear integration status
 cproj linear status
+
+# Monitor resource usage
+cproj cleanup --dry-run         # See what would be cleaned up
+```
+
+### 🧹 **Intelligent Cleanup**
+Automated maintenance of parallel workspaces:
+
+```bash
+# Interactive cleanup (recommended)
+cproj cleanup
+
+# Automated cleanup options
+cproj cleanup --older-than 14   # Remove old worktrees
+cproj cleanup --merged-only     # Remove merged branches
+cproj cleanup --force           # Force remove dirty worktrees
+cproj cleanup --pattern "exp-*" # Remove experimental branches
 ```
 
 ## Command Reference
