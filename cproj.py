@@ -159,7 +159,7 @@ class ProjectConfig:
             return self._get_default_config()
 
         try:
-            with open(self.config_path, 'r') as f:
+            with open(self.config_path, "r") as f:
                 config = yaml.safe_load(f) or {}
         except (yaml.YAMLError, IOError) as e:
             logger.warning(f"Failed to load project config: {e}")
@@ -177,7 +177,7 @@ class ProjectConfig:
             "name": config.get("name", self.repo_path.name),
             "type": config.get("type", "generic"),
             "features": features,
-            "custom_actions": custom_actions
+            "custom_actions": custom_actions,
         }
 
     def _get_default_config(self) -> Dict[str, Any]:
@@ -190,16 +190,16 @@ class ProjectConfig:
                 "claude_symlink": False,
                 "review_agents": False,
                 "nvm_setup": False,
-                "env_sync_check": False
+                "env_sync_check": False,
             },
-            "custom_actions": []
+            "custom_actions": [],
         }
 
     def save(self):
         """Save configuration to project.yaml"""
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
 
-        with open(self.config_path, 'w') as f:
+        with open(self.config_path, "w") as f:
             yaml.dump(self._config, f, default_flow_style=False, sort_keys=False)
 
     def is_feature_enabled(self, feature: str) -> bool:
@@ -503,26 +503,23 @@ class GitWorktree:
         try:
             # Check working directory status
             result = self._run_git(
-                ["status", "--porcelain"],
-                cwd=worktree_path,
-                capture_output=True,
-                text=True
+                ["status", "--porcelain"], cwd=worktree_path, capture_output=True, text=True
             )
 
-            lines = result.stdout.strip().split('\n') if result.stdout.strip() else []
+            lines = result.stdout.strip().split("\n") if result.stdout.strip() else []
 
             staged = []
             modified = []
             untracked = []
 
             for line in lines:
-                if line.startswith('A ') or line.startswith('M ') or line.startswith('D '):
+                if line.startswith("A ") or line.startswith("M ") or line.startswith("D "):
                     staged.append(line[3:])
-                elif line.startswith(' M') or line.startswith(' D'):
+                elif line.startswith(" M") or line.startswith(" D"):
                     modified.append(line[3:])
-                elif line.startswith('??'):
+                elif line.startswith("??"):
                     untracked.append(line[3:])
-                elif line.startswith('AM') or line.startswith('MM'):
+                elif line.startswith("AM") or line.startswith("MM"):
                     staged.append(line[3:])
                     modified.append(line[3:])
 
@@ -530,15 +527,10 @@ class GitWorktree:
                 "staged": staged,
                 "modified": modified,
                 "untracked": untracked,
-                "is_clean": len(lines) == 0
+                "is_clean": len(lines) == 0,
             }
         except subprocess.CalledProcessError:
-            return {
-                "staged": [],
-                "modified": [],
-                "untracked": [],
-                "is_clean": True
-            }
+            return {"staged": [], "modified": [], "untracked": [], "is_clean": True}
 
     def get_branch_comparison(
         self, worktree_path: Path, branch: str, base_branch: str = "main"
@@ -548,10 +540,7 @@ class GitWorktree:
             # Get current branch if not specified
             if not branch:
                 result = self._run_git(
-                    ["branch", "--show-current"],
-                    cwd=worktree_path,
-                    capture_output=True,
-                    text=True
+                    ["branch", "--show-current"], cwd=worktree_path, capture_output=True, text=True
                 )
                 branch = result.stdout.strip()
 
@@ -565,9 +554,7 @@ class GitWorktree:
             remote_branch = f"origin/{branch}"
             try:
                 self._run_git(
-                    ["rev-parse", "--verify", remote_branch],
-                    cwd=worktree_path,
-                    capture_output=True
+                    ["rev-parse", "--verify", remote_branch], cwd=worktree_path, capture_output=True
                 )
                 has_remote = True
             except subprocess.CalledProcessError:
@@ -579,7 +566,7 @@ class GitWorktree:
                     ["rev-list", "--count", f"{base_branch}..{branch}"],
                     cwd=worktree_path,
                     capture_output=True,
-                    text=True
+                    text=True,
                 )
                 ahead_main = int(ahead_main_result.stdout.strip())
             except (subprocess.CalledProcessError, ValueError):
@@ -590,7 +577,7 @@ class GitWorktree:
                     ["rev-list", "--count", f"{branch}..{base_branch}"],
                     cwd=worktree_path,
                     capture_output=True,
-                    text=True
+                    text=True,
                 )
                 behind_main = int(behind_main_result.stdout.strip())
             except (subprocess.CalledProcessError, ValueError):
@@ -605,7 +592,7 @@ class GitWorktree:
                         ["rev-list", "--count", f"{remote_branch}..{branch}"],
                         cwd=worktree_path,
                         capture_output=True,
-                        text=True
+                        text=True,
                     )
                     ahead_remote = int(ahead_remote_result.stdout.strip())
                 except (subprocess.CalledProcessError, ValueError):
@@ -616,7 +603,7 @@ class GitWorktree:
                         ["rev-list", "--count", f"{branch}..{remote_branch}"],
                         cwd=worktree_path,
                         capture_output=True,
-                        text=True
+                        text=True,
                     )
                     behind_remote = int(behind_remote_result.stdout.strip())
                 except (subprocess.CalledProcessError, ValueError):
@@ -631,7 +618,7 @@ class GitWorktree:
                 "ahead_remote": ahead_remote,
                 "behind_remote": behind_remote,
                 "is_synced_with_main": ahead_main == 0 and behind_main == 0,
-                "is_synced_with_remote": ahead_remote == 0 and behind_remote == 0
+                "is_synced_with_remote": ahead_remote == 0 and behind_remote == 0,
             }
         except subprocess.CalledProcessError:
             return {
@@ -643,7 +630,7 @@ class GitWorktree:
                 "ahead_remote": 0,
                 "behind_remote": 0,
                 "is_synced_with_main": True,
-                "is_synced_with_remote": True
+                "is_synced_with_remote": True,
             }
 
     def _run_git(
@@ -657,7 +644,7 @@ class GitWorktree:
 class WorktreeStatus:
     """Comprehensive status information for a worktree"""
 
-    def __init__(self, worktree_path: Path, agent_json: Optional['AgentJson'] = None):
+    def __init__(self, worktree_path: Path, agent_json: Optional["AgentJson"] = None):
         self.worktree_path = worktree_path
         self.agent_json = agent_json
         self._local_status = None
@@ -699,7 +686,7 @@ class WorktreeStatus:
             "links": self.agent_json.data["links"],
             "overall_status": self._determine_overall_status(
                 local_status, branch_comparison, pr_status
-            )
+            ),
         }
 
     def _determine_overall_status(
@@ -752,50 +739,49 @@ class WorktreeStatus:
             lines.append(f"📁 {status['worktree_path']}")
 
             # Branch info
-            branch_comp = status['branch_comparison']
+            branch_comp = status["branch_comparison"]
             branch_line = f"🌿 {status['branch']} → {status['base_branch']}"
 
-            if branch_comp['ahead_main'] > 0 or branch_comp['behind_main'] > 0:
+            if branch_comp["ahead_main"] > 0 or branch_comp["behind_main"] > 0:
                 branch_line += (
-                    f" (ahead {branch_comp['ahead_main']}, "
-                    f"behind {branch_comp['behind_main']})"
+                    f" (ahead {branch_comp['ahead_main']}, " f"behind {branch_comp['behind_main']})"
                 )
 
             lines.append(branch_line)
 
             # Local status
-            local = status['local_status']
-            if not local['is_clean']:
+            local = status["local_status"]
+            if not local["is_clean"]:
                 local_parts = []
-                if local['modified']:
+                if local["modified"]:
                     local_parts.append(f"{len(local['modified'])} modified")
-                if local['staged']:
+                if local["staged"]:
                     local_parts.append(f"{len(local['staged'])} staged")
-                if local['untracked']:
+                if local["untracked"]:
                     local_parts.append(f"{len(local['untracked'])} untracked")
                 lines.append(f"📝 Local: {', '.join(local_parts)}")
 
             # Remote status
-            if branch_comp['has_remote']:
-                if branch_comp['ahead_remote'] > 0:
+            if branch_comp["has_remote"]:
+                if branch_comp["ahead_remote"] > 0:
                     lines.append(f"🔄 Remote: ↑ {branch_comp['ahead_remote']} commits to push")
-                elif branch_comp['behind_remote'] > 0:
+                elif branch_comp["behind_remote"] > 0:
                     lines.append(f"🔄 Remote: ↓ {branch_comp['behind_remote']} commits to pull")
 
             # PR status
-            pr_status = status['pr_status']
+            pr_status = status["pr_status"]
             if pr_status:
-                state = pr_status.get('state', 'unknown')
+                state = pr_status.get("state", "unknown")
                 pr_line = f"📋 PR: {pr_status.get('title', 'Unknown')} ({state}"
 
-                if state == 'open':
-                    reviews = pr_status.get('reviews', {})
+                if state == "open":
+                    reviews = pr_status.get("reviews", {})
                     if reviews:
-                        approved = reviews.get('approved', 0)
-                        total = reviews.get('total', 0)
+                        approved = reviews.get("approved", 0)
+                        total = reviews.get("total", 0)
                         pr_line += f", {approved}/{total} approvals"
 
-                    ci_status = pr_status.get('ci_status')
+                    ci_status = pr_status.get("ci_status")
                     if ci_status:
                         pr_line += f", {ci_status}"
 
@@ -803,7 +789,7 @@ class WorktreeStatus:
                 lines.append(pr_line)
 
             # Overall status
-            overall = status['overall_status']
+            overall = status["overall_status"]
             status_icons = {
                 "synced": "✅ Status: In sync with main",
                 "has_local_changes": "📝 Status: Has local changes",
@@ -813,14 +799,14 @@ class WorktreeStatus:
                 "under_review": "👀 Status: Under review",
                 "merged": "✅ Status: Merged",
                 "cleanup": "🧹 Status: Ready for cleanup",
-                "unknown": "❓ Status: Unknown"
+                "unknown": "❓ Status: Unknown",
             }
             lines.append(status_icons.get(overall, f"Status: {overall}"))
 
-            if detailed and status['links']['linear']:
+            if detailed and status["links"]["linear"]:
                 lines.append(f"🔗 Linear: {status['links']['linear']}")
 
-            return '\n'.join(lines)
+            return "\n".join(lines)
 
         except Exception as e:
             return f"❌ Error getting status: {e}"
@@ -834,9 +820,9 @@ class WorktreeStatus:
                 return f"ERROR {status['worktree_path']}: {status['error']}"
 
             # Build a concise, action-oriented line
-            path_name = Path(status['worktree_path']).name
-            branch = status['branch']
-            overall = status['overall_status']
+            path_name = Path(status["worktree_path"]).name
+            branch = status["branch"]
+            overall = status["overall_status"]
 
             # Action-focused status messages
             action_map = {
@@ -848,7 +834,7 @@ class WorktreeStatus:
                 "merged": "MERGED",
                 "synced": "SYNCED",
                 "cleanup": "CLEANUP",
-                "unknown": "CHECK"
+                "unknown": "CHECK",
             }
 
             action = action_map.get(overall, overall.upper())
@@ -857,16 +843,16 @@ class WorktreeStatus:
             parts = [f"{action} {path_name} [{branch}]"]
 
             # Add specific action details
-            local = status['local_status']
-            branch_comp = status['branch_comparison']
+            local = status["local_status"]
+            branch_comp = status["branch_comparison"]
 
             if overall == "has_local_changes":
                 changes = []
-                if local['staged']:
+                if local["staged"]:
                     changes.append(f"{len(local['staged'])}staged")
-                if local['modified']:
+                if local["modified"]:
                     changes.append(f"{len(local['modified'])}mod")
-                if local['untracked']:
+                if local["untracked"]:
                     changes.append(f"{len(local['untracked'])}new")
                 if changes:
                     parts.append(f"({', '.join(changes)})")
@@ -875,7 +861,7 @@ class WorktreeStatus:
             elif overall == "needs_pull":
                 parts.append(f"({branch_comp['behind_remote']} commits)")
             elif overall == "ready_for_pr":
-                if branch_comp['ahead_main'] > 0:
+                if branch_comp["ahead_main"] > 0:
                     parts.append(f"({branch_comp['ahead_main']} commits ahead)")
 
             return " ".join(parts)
@@ -1262,7 +1248,7 @@ class EnvironmentSetup:
             # Check if files differ
             if dest_file.exists():
                 try:
-                    with open(source_file, 'r') as sf, open(dest_file, 'r') as df:
+                    with open(source_file, "r") as sf, open(dest_file, "r") as df:
                         source_content = sf.read()
                         dest_content = df.read()
 
@@ -1276,8 +1262,13 @@ class EnvironmentSetup:
 
         return different_files
 
-    def sync_env_files(self, main_repo_path: Path, specific_file: Optional[str] = None,
-                       dry_run: bool = False, backup: bool = False):
+    def sync_env_files(
+        self,
+        main_repo_path: Path,
+        specific_file: Optional[str] = None,
+        dry_run: bool = False,
+        backup: bool = False,
+    ):
         """Sync .env files from current worktree back to main repo"""
         from datetime import datetime
         import difflib
@@ -1329,16 +1320,19 @@ class EnvironmentSetup:
             # Show diff if files differ
             if dest_file.exists():
                 try:
-                    with open(source_file, 'r') as sf, open(dest_file, 'r') as df:
+                    with open(source_file, "r") as sf, open(dest_file, "r") as df:
                         source_lines = sf.readlines()
                         dest_lines = df.readlines()
 
-                    diff = list(difflib.unified_diff(
-                        dest_lines, source_lines,
-                        fromfile=f"main/{rel_path}",
-                        tofile=f"worktree/{rel_path}",
-                        lineterm=""
-                    ))
+                    diff = list(
+                        difflib.unified_diff(
+                            dest_lines,
+                            source_lines,
+                            fromfile=f"main/{rel_path}",
+                            tofile=f"worktree/{rel_path}",
+                            lineterm="",
+                        )
+                    )
 
                     if diff:
                         print(f"\n📝 Changes in {rel_path}:")
@@ -1544,18 +1538,29 @@ class GitHubIntegration:
         try:
             # Extract owner/repo/number from URL
             import re
-            match = re.search(r'github\.com/([^/]+)/([^/]+)/pull/(\d+)', pr_url)
+
+            match = re.search(r"github\.com/([^/]+)/([^/]+)/pull/(\d+)", pr_url)
             if not match:
                 return None
 
             owner, repo, pr_number = match.groups()
 
             # Get PR info using gh CLI
-            result = subprocess.run([
-                "gh", "pr", "view", pr_number,
-                "--repo", f"{owner}/{repo}",
-                "--json", "state,title,author,reviewDecision,statusCheckRollup,reviews,mergedAt,mergedBy"
-            ], capture_output=True, text=True, check=True)
+            result = subprocess.run(
+                [
+                    "gh",
+                    "pr",
+                    "view",
+                    pr_number,
+                    "--repo",
+                    f"{owner}/{repo}",
+                    "--json",
+                    "state,title,author,reviewDecision,statusCheckRollup,reviews,mergedAt,mergedBy",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
 
             pr_data = json.loads(result.stdout)
 
@@ -1603,8 +1608,10 @@ class GitHubIntegration:
                 "reviews": reviews_info,
                 "ci_status": ci_status,
                 "merged_at": pr_data.get("mergedAt"),
-                "merged_by": pr_data.get("mergedBy", {}).get("login") if pr_data.get("mergedBy") else None,
-                "url": pr_url
+                "merged_by": (
+                    pr_data.get("mergedBy", {}).get("login") if pr_data.get("mergedBy") else None
+                ),
+                "url": pr_url,
             }
 
         except (subprocess.CalledProcessError, json.JSONDecodeError, Exception):
@@ -1860,11 +1867,11 @@ class CprojCLI:
         )
         init_project_parser.add_argument("--name", help="Project name")
         init_project_parser.add_argument(
-            "--type", help="Project type",
-            choices=["tool", "web-app", "library", "generic"])
+            "--type", help="Project type", choices=["tool", "web-app", "library", "generic"]
+        )
         init_project_parser.add_argument(
-            "--template", help="Configuration template",
-            choices=["cproj", "trivalley", "minimal"])
+            "--template", help="Configuration template", choices=["cproj", "trivalley", "minimal"]
+        )
 
         # worktree create command
         wt_create = subparsers.add_parser("worktree", aliases=["w"], help="Worktree commands")
@@ -1970,8 +1977,7 @@ class CprojCLI:
             "--all", action="store_true", help="Show status of all worktrees"
         )
         status_parser.add_argument(
-            "--detailed", action="store_true",
-            help="Show detailed status information"
+            "--detailed", action="store_true", help="Show detailed status information"
         )
 
         # cleanup command
@@ -2656,8 +2662,13 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             print(f"   Name: {project_config.get_project_name()}")
             print(f"   Type: {project_config.get_project_type()}")
             print("   Features:")
-            for feature in ["claude_workspace", "claude_symlink", "review_agents",
-                            "nvm_setup", "env_sync_check"]:
+            for feature in [
+                "claude_workspace",
+                "claude_symlink",
+                "review_agents",
+                "nvm_setup",
+                "env_sync_check",
+            ]:
                 enabled = "✅" if project_config.is_feature_enabled(feature) else "❌"
                 print(f"     {enabled} {feature}")
             print()
@@ -2668,9 +2679,9 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                     return
 
         # Get project info
-        project_name = (args.name
-                        or input(f"Project name [{repo_path.name}]: ").strip()
-                        or repo_path.name)
+        project_name = (
+            args.name or input(f"Project name [{repo_path.name}]: ").strip() or repo_path.name
+        )
 
         if args.type:
             project_type = args.type
@@ -2737,12 +2748,14 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         config.enable_feature("env_sync_check", True)
 
         # Add custom action to copy workspace file
-        config.add_custom_action({
-            "type": "copy_workspace_file",
-            "description": "Copy trivalley.code-workspace with worktree-specific name",
-            "source": "trivalley.code-workspace",
-            "destination_pattern": "{worktree_dir}_trivalley.code-workspace"
-        })
+        config.add_custom_action(
+            {
+                "type": "copy_workspace_file",
+                "description": "Copy trivalley.code-workspace with worktree-specific name",
+                "source": "trivalley.code-workspace",
+                "destination_pattern": "{worktree_dir}_trivalley.code-workspace",
+            }
+        )
 
     def _apply_minimal_template(self, config: ProjectConfig):
         """Apply minimal project template"""
@@ -2762,7 +2775,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             ("claude_symlink", "Create .cursorrules symlink to CLAUDE.md"),
             ("review_agents", "Enable automated review agents"),
             ("nvm_setup", "Setup NVM integration for Node projects"),
-            ("env_sync_check", "Check for env file changes during review")
+            ("env_sync_check", "Check for env file changes during review"),
         ]
 
         for feature, description in features:
@@ -2778,8 +2791,9 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
 
             config.enable_feature(feature, enabled)
 
-    def _execute_custom_actions(self, project_config: ProjectConfig,
-                                worktree_path: Path, repo_path: Path):
+    def _execute_custom_actions(
+        self, project_config: ProjectConfig, worktree_path: Path, repo_path: Path
+    ):
         """Execute custom actions defined in project configuration"""
         actions = project_config.get_custom_actions()
 
@@ -2791,8 +2805,9 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             else:
                 logger.warning(f"Unknown custom action type: {action_type}")
 
-    def _execute_copy_workspace_file(self, action: Dict[str, Any],
-                                     worktree_path: Path, repo_path: Path):
+    def _execute_copy_workspace_file(
+        self, action: Dict[str, Any], worktree_path: Path, repo_path: Path
+    ):
         """Execute copy workspace file action"""
         source = action.get("source")
         destination_pattern = action.get("destination_pattern")
@@ -2813,6 +2828,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
 
         try:
             import shutil
+
             shutil.copy2(source_file, destination_file)
             print(f"📁 Copied workspace file: {destination_name}")
         except OSError as e:
@@ -3058,10 +3074,12 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                 for file in different_env_files:
                     print(f"   • {file}")
 
-                sync_response = input(
-                    "\nDo you want to sync these .env files to the main repo? [y/N]: "
-                ).strip().lower()
-                if sync_response == 'y':
+                sync_response = (
+                    input("\nDo you want to sync these .env files to the main repo? [y/N]: ")
+                    .strip()
+                    .lower()
+                )
+                if sync_response == "y":
                     print("\n🔄 Syncing .env files...")
                     env_setup.sync_env_files(repo_path, backup=True)
                 else:
@@ -3332,15 +3350,20 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
 
                         # Determine if this worktree needs action
                         needs_action = overall_status in [
-                            "has_local_changes", "needs_push", "needs_pull",
-                            "ready_for_pr", "under_review", "cleanup", "unknown"
+                            "has_local_changes",
+                            "needs_push",
+                            "needs_pull",
+                            "ready_for_pr",
+                            "under_review",
+                            "cleanup",
+                            "unknown",
                         ]
 
                         worktree_info = {
                             "path": wt_path,
                             "status_obj": status,
                             "needs_action": needs_action,
-                            "type": "cproj"
+                            "type": "cproj",
                         }
                     else:
                         # Plain worktree without cproj metadata
@@ -3353,7 +3376,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                             "branch": branch,
                             "local_status": local_status,
                             "needs_action": needs_action,
-                            "type": "plain"
+                            "type": "plain",
                         }
 
                     all_worktrees.append(worktree_info)
@@ -3366,7 +3389,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                         "path": wt_path,
                         "error": str(e),
                         "needs_action": True,
-                        "type": "error"
+                        "type": "error",
                     }
                     all_worktrees.append(error_info)
                     actionable_worktrees.append(error_info)
@@ -3389,12 +3412,12 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             # Sort worktrees by action priority
             action_priority = {
                 "has_local_changes": 1,  # COMMIT
-                "needs_push": 2,         # PUSH
-                "ready_for_pr": 3,       # CREATE PR
-                "under_review": 4,       # REVIEW
-                "needs_pull": 5,         # PULL
-                "unknown": 6,            # CHECK
-                "cleanup": 7             # CLEANUP
+                "needs_push": 2,  # PUSH
+                "ready_for_pr": 3,  # CREATE PR
+                "under_review": 4,  # REVIEW
+                "needs_pull": 5,  # PULL
+                "unknown": 6,  # CHECK
+                "cleanup": 7,  # CLEANUP
             }
 
             def get_sort_key(wt_info):
@@ -3422,8 +3445,8 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                             print(wt_info["status_obj"].format_terse())
                     elif wt_info["type"] == "plain":
                         # Plain worktree formatting
-                        path_name = wt_info['path'].name
-                        branch = wt_info['branch']
+                        path_name = wt_info["path"].name
+                        branch = wt_info["branch"]
                         local = wt_info["local_status"]
 
                         if args.detailed:
@@ -3607,9 +3630,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                                 print("Please enter 'y' or 'n'")
 
                     if selected_for_removal:
-                        print(
-                            f"\n📋 Selected {len(selected_for_removal)} " f"worktrees for removal"
-                        )
+                        print(f"\n📋 Selected {len(selected_for_removal)} " f"worktrees for removal")
                         for wt in selected_for_removal:
                             print(f"  - {Path(wt['path']).name} " f"[{wt.get('branch', 'N/A')}]")
 
@@ -4016,7 +4037,6 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                     and main_repo_path.exists()
                     and (main_repo_path / ".claude").exists()
                 ):
-
                     print(f"📂 Copying project .claude from {main_repo_path}")
                     shutil.copytree(main_repo_path / ".claude", claude_dir)
                     print("🔀 Merging cproj's template files...")
@@ -4112,7 +4132,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
 
         # Load agent.json to get main repo path
         try:
-            with open(agent_json_path, 'r') as f:
+            with open(agent_json_path, "r") as f:
                 agent_data = json.load(f)
         except (json.JSONDecodeError, IOError) as e:
             raise CprojError(f"Failed to read .agent.json: {e}")
@@ -4127,7 +4147,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             main_repo_path=main_repo_path,
             specific_file=args.file,
             dry_run=args.dry_run,
-            backup=args.backup
+            backup=args.backup,
         )
 
     def cmd_config(self, args):
