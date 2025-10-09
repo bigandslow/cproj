@@ -3630,7 +3630,9 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                                 print("Please enter 'y' or 'n'")
 
                     if selected_for_removal:
-                        print(f"\n📋 Selected {len(selected_for_removal)} " f"worktrees for removal")
+                        print(
+                            f"\n📋 Selected {len(selected_for_removal)} " f"worktrees for removal"
+                        )
                         for wt in selected_for_removal:
                             print(f"  - {Path(wt['path']).name} " f"[{wt.get('branch', 'N/A')}]")
 
