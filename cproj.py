@@ -1944,6 +1944,11 @@ class CprojCLI:
             action="store_true",
             help="Skip automated review agents",
         )
+        open_parser.add_argument(
+            "--skip-env-sync",
+            action="store_true",
+            help="Skip .env file sync prompt",
+        )
 
         agents_parser = review_sub.add_parser("agents", help="Run automated review agents")
         agents_parser.add_argument(
@@ -3064,8 +3069,11 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         # Load project configuration to check if env sync is enabled
         project_config = ProjectConfig(repo_path)
 
-        # Check for env file differences if feature is enabled
-        if project_config.is_feature_enabled("env_sync_check"):
+        # Check for env file differences if feature is enabled and not skipped
+        if (
+            project_config.is_feature_enabled("env_sync_check")
+            and not getattr(args, "skip_env_sync", False)
+        ):
             env_setup = EnvironmentSetup(worktree_path)
             different_env_files = env_setup.check_env_differences(repo_path)
 
@@ -3074,16 +3082,31 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                 for file in different_env_files:
                     print(f"   • {file}")
 
-                sync_response = (
-                    input("\nDo you want to sync these .env files to the main repo? [y/N]: ")
-                    .strip()
-                    .lower()
-                )
+                # Check if we can prompt for input
+                if self._is_interactive():
+                    try:
+                        sync_response = (
+                            input(
+                                "\nDo you want to sync these .env files to the main repo? [y/N]: "
+                            )
+                            .strip()
+                            .lower()
+                        )
+                    except (EOFError, KeyboardInterrupt):
+                        sync_response = "n"
+                        print("\n⏭️  Skipping .env file sync (no input available)")
+                else:
+                    sync_response = "n"
+                    print("\n⏭️  Skipping .env file sync (non-interactive mode)")
+
                 if sync_response == "y":
                     print("\n🔄 Syncing .env files...")
                     env_setup.sync_env_files(repo_path, backup=True)
                 else:
-                    print("⏭️  Skipping .env file sync")
+                    if sync_response != "n" or self._is_interactive():
+                        print("⏭️  Skipping .env file sync")
+        elif getattr(args, "skip_env_sync", False):
+            print("⏭️  Skipping .env file sync (--skip-env-sync flag)")
 
         git = GitWorktree(repo_path)
 
