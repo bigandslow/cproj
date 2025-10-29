@@ -2405,7 +2405,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
 
                 # Start with cproj templates as base,
                 # then merge project configs
-                for subdir in ["commands", "agents"]:
+                for subdir in ["commands", "agents", "skills"]:
                     cproj_source_dir = cproj_claude_dir / subdir
                     target_dir = worktree_claude_dir / subdir
 
@@ -2955,24 +2955,24 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             )
 
             if has_python:
-                python_install = input("Auto-install Python dependencies? [y/N]: ").strip().lower()
-                args.python_install = python_install in ["y", "yes"]
+                python_install = input("Auto-install Python dependencies? [Y/n]: ").strip().lower()
+                args.python_install = python_install not in ["n", "no"]
 
                 if not args.python_install:
-                    shared_venv = input("Use shared venv from main repo? [y/N]: ").strip().lower()
-                    args.shared_venv = shared_venv in ["y", "yes"]
+                    shared_venv = input("Use shared venv from main repo? [Y/n]: ").strip().lower()
+                    args.shared_venv = shared_venv not in ["n", "no"]
 
             if has_node:
-                node_install = input("Auto-install Node dependencies? [y/N]: ").strip().lower()
-                args.node_install = node_install in ["y", "yes"]
+                node_install = input("Auto-install Node dependencies? [Y/n]: ").strip().lower()
+                args.node_install = node_install not in ["n", "no"]
 
             if has_java:
-                java_build = input("Auto-build Java project? [y/N]: ").strip().lower()
-                args.java_build = java_build in ["y", "yes"]
+                java_build = input("Auto-build Java project? [Y/n]: ").strip().lower()
+                args.java_build = java_build not in ["n", "no"]
 
             # Ask about .env files
-            copy_env = input("Copy .env files from main repo? [y/N]: ").strip().lower()
-            args.copy_env = copy_env in ["y", "yes"]
+            copy_env = input("Copy .env files from main repo? [Y/n]: ").strip().lower()
+            args.copy_env = copy_env not in ["n", "no"]
 
             if has_python or has_node or has_java:
                 print()
