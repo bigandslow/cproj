@@ -407,6 +407,41 @@ class GitWorktree:
         cmd.append(str(worktree_path))
         self._run_git(cmd)
 
+    def delete_branch(self, branch_name: str, force: bool = False):
+        """Delete a branch"""
+        cmd = ["branch"]
+        if force:
+            cmd.append("-D")  # Force delete
+        else:
+            cmd.append("-d")  # Safe delete (only if merged)
+        cmd.append(branch_name)
+        self._run_git(cmd)
+
+    def remove_worktree_and_branch(self, worktree_path: Path, force: bool = False):
+        """Remove a worktree and its associated branch"""
+        # First, get the branch name for this worktree
+        worktrees = self.list_worktrees()
+        branch_name = None
+
+        for wt in worktrees:
+            if Path(wt["path"]) == worktree_path:
+                branch_name = wt.get("branch")
+                break
+
+        # Remove the worktree first
+        self.remove_worktree(worktree_path, force=force)
+
+        # Then delete the branch if we found one and it's not a main/master branch
+        if branch_name and branch_name not in ["main", "master", "develop"]:
+            try:
+                self.delete_branch(branch_name, force=force)
+            except subprocess.CalledProcessError as e:
+                # Don't fail the whole operation if branch deletion fails
+                logger.debug(f"Failed to delete branch {branch_name}: {e}")
+                print(f"⚠️  Warning: Could not delete branch '{branch_name}': {e}")
+
+        return branch_name
+
     def list_worktrees(self) -> List[Dict]:
         """List all worktrees"""
         result = self._run_git(["worktree", "list", "--porcelain"], capture_output=True, text=True)
@@ -1040,7 +1075,49 @@ class EnvironmentSetup:
             else:
                 print("No .venv found in main repo to share")
 
-        # Try uv first
+        # Check for Poetry first
+        poetry_lock_paths = list(self.worktree_path.glob("**/poetry.lock"))
+        poetry_lock_paths = [
+            p for p in poetry_lock_paths if not any(ex in p.parts for ex in exclude_dirs)
+        ]
+        uses_poetry = len(poetry_lock_paths) > 0
+
+        if uses_poetry and shutil.which("poetry"):
+            try:
+                # Configure Poetry to use in-project virtualenvs
+                # This prevents shared virtualenv conflicts across worktrees
+                env = os.environ.copy()
+                env["POETRY_VIRTUALENVS_IN_PROJECT"] = "true"
+
+                # Set local config for the workspace
+                subprocess.run(
+                    ["poetry", "config", "virtualenvs.in-project", "true", "--local"],
+                    cwd=self.worktree_path,
+                    check=True,
+                    capture_output=True,
+                    env=env,
+                )
+
+                env_data["manager"] = "poetry"
+                env_data["active"] = True
+
+                if auto_install:
+                    # Install dependencies with in-project virtualenv
+                    subprocess.run(
+                        ["poetry", "install"],
+                        cwd=self.worktree_path,
+                        check=True,
+                        capture_output=True,
+                        env=env,
+                    )
+                    print("✅ Poetry dependencies installed in .venv")
+
+                return env_data
+            except subprocess.CalledProcessError as e:
+                print(f"Warning: Poetry setup failed: {e}")
+                # Fall through to try other methods
+
+        # Try uv next
         if shutil.which("uv"):
             try:
                 subprocess.run(
@@ -2329,6 +2406,11 @@ echo "🔗 Setting up Linear MCP..."
 claude mcp add --transport sse linear-server https://mcp.linear.app/sse
 echo "✅ Linear MCP configured."
 
+# Setup Playwright MCP
+echo "🎭 Setting up Playwright MCP..."
+claude mcp add playwright npx @playwright/mcp@latest
+echo "✅ Playwright MCP configured."
+
 echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new terminal in this directory"
 """
                 setup_script.write_text(script_content)
@@ -2807,6 +2889,8 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
 
             if action_type == "copy_workspace_file":
                 self._execute_copy_workspace_file(action, worktree_path, repo_path)
+            elif action_type == "copy_directory":
+                self._execute_copy_directory(action, worktree_path, repo_path)
             else:
                 logger.warning(f"Unknown custom action type: {action_type}")
 
@@ -2838,6 +2922,45 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             print(f"📁 Copied workspace file: {destination_name}")
         except OSError as e:
             logger.warning(f"Failed to copy workspace file: {e}")
+
+    def _execute_copy_directory(
+        self, action: Dict[str, Any], worktree_path: Path, repo_path: Path
+    ):
+        """Execute copy directory action"""
+        source = action.get("source")
+        destination = action.get("destination")
+
+        if not source:
+            logger.warning("copy_directory action missing source")
+            return
+
+        source_dir = repo_path / source
+        if not source_dir.exists():
+            logger.warning(f"Source directory not found: {source_dir}")
+            return
+
+        if not source_dir.is_dir():
+            logger.warning(f"Source is not a directory: {source_dir}")
+            return
+
+        # Use source name as destination if not specified
+        if not destination:
+            destination = source
+
+        destination_dir = worktree_path / destination
+
+        try:
+            import shutil
+
+            # Remove destination if it exists
+            if destination_dir.exists():
+                shutil.rmtree(destination_dir)
+
+            # Copy the entire directory
+            shutil.copytree(source_dir, destination_dir)
+            print(f"📁 Copied directory: {destination}")
+        except OSError as e:
+            logger.warning(f"Failed to copy directory: {e}")
 
     def cmd_worktree_create(self, args):
         """Create worktree"""
@@ -3286,10 +3409,13 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             agent_json.close_workspace()
             agent_json.save()
 
-            # Remove worktree
+            # Remove worktree and branch
             if not args.keep_worktree:
-                git.remove_worktree(worktree_path, force=True)
-                print(f"Removed worktree: {worktree_path}")
+                branch_name = git.remove_worktree_and_branch(worktree_path, force=True)
+                if branch_name:
+                    print(f"Removed worktree and branch '{branch_name}': {worktree_path}")
+                else:
+                    print(f"Removed worktree: {worktree_path}")
             else:
                 print(f"Keeping worktree: {worktree_path}")
 
@@ -3663,8 +3789,16 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                         if confirm in ["y", "yes"]:
                             for wt in selected_for_removal:
                                 try:
-                                    git.remove_worktree(Path(wt["path"]), force=args.force)
-                                    print(f"✅ Removed {Path(wt['path']).name}")
+                                    branch_name = git.remove_worktree_and_branch(
+                                        Path(wt["path"]), force=args.force
+                                    )
+                                    if branch_name:
+                                        print(
+                                            f"✅ Removed {Path(wt['path']).name} "
+                                            f"and branch '{branch_name}'"
+                                        )
+                                    else:
+                                        print(f"✅ Removed {Path(wt['path']).name}")
                                 except subprocess.CalledProcessError as e:
                                     # Capture stderr to get the actual git
                                     # error message
@@ -3718,14 +3852,21 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                                             )
                                             if force_choice in ["y", "yes"]:
                                                 try:
-                                                    git.remove_worktree(
+                                                    branch_name = git.remove_worktree_and_branch(
                                                         Path(wt["path"]),
                                                         force=True,
                                                     )
-                                                    print(
-                                                        f"✅ Force removed "
-                                                        f"{Path(wt['path']).name}"
-                                                    )
+                                                    if branch_name:
+                                                        print(
+                                                            f"✅ Force removed "
+                                                            f"{Path(wt['path']).name} "
+                                                            f"and branch '{branch_name}'"
+                                                        )
+                                                    else:
+                                                        print(
+                                                            f"✅ Force removed "
+                                                            f"{Path(wt['path']).name}"
+                                                        )
                                                 except Exception as force_e:
                                                     print(
                                                         f"❌ Failed to force remove "
@@ -3868,8 +4009,11 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             if not args.dry_run:
                 if args.yes or input(f"Remove {path}? [y/N] ").lower() == "y":
                     try:
-                        git.remove_worktree(path, force=args.force)
-                        print(f"Removed: {path}")
+                        branch_name = git.remove_worktree_and_branch(path, force=args.force)
+                        if branch_name:
+                            print(f"Removed: {path} and branch '{branch_name}'")
+                        else:
+                            print(f"Removed: {path}")
                     except subprocess.CalledProcessError as e:
                         # Capture stderr to get the actual git error message
                         try:
@@ -3905,8 +4049,16 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                                 )
                                 if force_choice in ["y", "yes"]:
                                     try:
-                                        git.remove_worktree(path, force=True)
-                                        print(f"✅ Force removed {path.name}")
+                                        branch_name = git.remove_worktree_and_branch(
+                                            path, force=True
+                                        )
+                                        if branch_name:
+                                            print(
+                                                f"✅ Force removed {path.name} "
+                                                f"and branch '{branch_name}'"
+                                            )
+                                        else:
+                                            print(f"✅ Force removed {path.name}")
                                     except Exception as force_e:
                                         print(f"❌ Failed to force remove {path.name}: {force_e}")
                                 else:
