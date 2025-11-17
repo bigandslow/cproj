@@ -994,6 +994,7 @@ class EnvironmentSetup:
         auto_install: bool = False,
         shared_venv: bool = False,
         repo_path: Optional[Path] = None,
+        project_config: Optional["ProjectConfig"] = None,
     ) -> Dict:
         """Setup Python environment with uv or venv"""
         env_data = {
@@ -1075,47 +1076,66 @@ class EnvironmentSetup:
             else:
                 print("No .venv found in main repo to share")
 
-        # Check for Poetry first
-        poetry_lock_paths = list(self.worktree_path.glob("**/poetry.lock"))
-        poetry_lock_paths = [
-            p for p in poetry_lock_paths if not any(ex in p.parts for ex in exclude_dirs)
-        ]
-        uses_poetry = len(poetry_lock_paths) > 0
+        # Check for Poetry first (unless disabled in project config)
+        poetry_enabled = (
+            project_config.is_feature_enabled("poetry_auto_setup")
+            if project_config
+            else True  # Default to enabled if no config
+        )
+
+        if poetry_enabled:
+            poetry_lock_paths = list(self.worktree_path.glob("**/poetry.lock"))
+            poetry_lock_paths = [
+                p for p in poetry_lock_paths if not any(ex in p.parts for ex in exclude_dirs)
+            ]
+            uses_poetry = len(poetry_lock_paths) > 0
+        else:
+            uses_poetry = False
 
         if uses_poetry and shutil.which("poetry"):
-            try:
-                # Configure Poetry to use in-project virtualenvs
-                # This prevents shared virtualenv conflicts across worktrees
-                env = os.environ.copy()
-                env["POETRY_VIRTUALENVS_IN_PROJECT"] = "true"
+            # Configure Poetry to use in-project virtualenvs
+            # This prevents shared virtualenv conflicts across worktrees
+            env = os.environ.copy()
+            env["POETRY_VIRTUALENVS_IN_PROJECT"] = "true"
 
-                # Set local config for the workspace
-                subprocess.run(
-                    ["poetry", "config", "virtualenvs.in-project", "true", "--local"],
-                    cwd=self.worktree_path,
-                    check=True,
-                    capture_output=True,
-                    env=env,
-                )
+            env_data["manager"] = "poetry"
+            env_data["active"] = True
+            success_count = 0
 
-                env_data["manager"] = "poetry"
-                env_data["active"] = True
-
-                if auto_install:
-                    # Install dependencies with in-project virtualenv
+            # Process each poetry.lock location separately
+            for poetry_lock in poetry_lock_paths:
+                poetry_dir = poetry_lock.parent
+                try:
+                    # Set local config for this specific Poetry project
                     subprocess.run(
-                        ["poetry", "install"],
-                        cwd=self.worktree_path,
+                        ["poetry", "config", "virtualenvs.in-project", "true", "--local"],
+                        cwd=poetry_dir,
                         check=True,
                         capture_output=True,
                         env=env,
                     )
-                    print("✅ Poetry dependencies installed in .venv")
 
+                    if auto_install:
+                        # Install dependencies with in-project virtualenv
+                        subprocess.run(
+                            ["poetry", "install"],
+                            cwd=poetry_dir,
+                            check=True,
+                            capture_output=True,
+                            env=env,
+                        )
+                        success_count += 1
+                        rel_path = poetry_dir.relative_to(self.worktree_path)
+                        print(f"✅ Poetry dependencies installed in {rel_path}/.venv")
+
+                except subprocess.CalledProcessError as e:
+                    rel_path = poetry_dir.relative_to(self.worktree_path)
+                    print(f"⚠️  Warning: Poetry setup failed for {rel_path}: {e}")
+
+            # Only return poetry manager if at least one succeeded
+            if success_count > 0 or not auto_install:
                 return env_data
-            except subprocess.CalledProcessError as e:
-                print(f"Warning: Poetry setup failed: {e}")
-                # Fall through to try other methods
+            # Fall through to try other methods if all failed
 
         # Try uv next
         if shutil.which("uv"):
@@ -2891,6 +2911,8 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
                 self._execute_copy_workspace_file(action, worktree_path, repo_path)
             elif action_type == "copy_directory":
                 self._execute_copy_directory(action, worktree_path, repo_path)
+            elif action_type == "run_command":
+                self._execute_run_command(action, worktree_path, repo_path)
             else:
                 logger.warning(f"Unknown custom action type: {action_type}")
 
@@ -2961,6 +2983,37 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             print(f"📁 Copied directory: {destination}")
         except OSError as e:
             logger.warning(f"Failed to copy directory: {e}")
+
+    def _execute_run_command(
+        self, action: Dict[str, Any], worktree_path: Path, repo_path: Path
+    ):
+        """Execute shell command action"""
+        command = action.get("command")
+        description = action.get("description", "Running custom command")
+
+        if not command:
+            logger.warning("run_command action missing command")
+            return
+
+        print(f"🔧 {description}")
+
+        try:
+            # Run command in the worktree directory
+            result = subprocess.run(
+                command,
+                cwd=worktree_path,
+                shell=True,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            if result.stdout:
+                print(result.stdout.strip())
+            print("✅ Command completed successfully")
+        except subprocess.CalledProcessError as e:
+            error_msg = e.stderr.strip() if e.stderr else str(e)
+            print(f"⚠️  Command failed: {error_msg}")
+            logger.warning(f"Failed to run command '{command}': {error_msg}")
 
     def cmd_worktree_create(self, args):
         """Create worktree"""
@@ -3121,7 +3174,9 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
 
         # Setup environment
         env_setup = EnvironmentSetup(worktree_path)
-        python_env = env_setup.setup_python(args.python_install, args.shared_venv, repo_path)
+        python_env = env_setup.setup_python(
+            args.python_install, args.shared_venv, repo_path, project_config
+        )
         node_env = env_setup.setup_node(args.node_install)
         java_env = env_setup.setup_java(args.java_build)
 
