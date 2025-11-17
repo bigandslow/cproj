@@ -4742,10 +4742,38 @@ echo "✅ Node.js LTS activated. You can now run 'claude' command."
         project_name = project_config.get_project_name()
 
         if not project_config.is_feature_enabled("port_allocation"):
-            raise CprojError(
-                f"Port allocation is not enabled for project '{project_name}'. "
-                "Add 'port_allocation: true' to features in .cproj/project.yaml"
-            )
+            print(f"⚠️  Port allocation is not enabled for project '{project_name}'")
+            print()
+            response = input("Enable port allocation for this project? [Y/n]: ").strip().lower()
+
+            if response in ("", "y", "yes"):
+                # Enable the feature
+                project_config.enable_feature("port_allocation", True)
+
+                # Set default port config if not present
+                if not project_config.get_port_config():
+                    print()
+                    print("📊 Port Configuration")
+                    base_port_input = input(f"Base port [3000]: ").strip()
+                    base_port = int(base_port_input) if base_port_input else 3000
+
+                    max_slots_input = input(f"Maximum concurrent worktrees [99]: ").strip()
+                    max_slots = int(max_slots_input) if max_slots_input else 99
+
+                    # Update config with port settings
+                    project_config._config["port_config"] = {
+                        "base_port": base_port,
+                        "max_slots": max_slots
+                    }
+
+                project_config.save()
+                print()
+                print("✅ Port allocation enabled!")
+                print(f"   Configuration saved to: {project_config.config_path}")
+                print()
+            else:
+                print("Port allocation not enabled. Exiting.")
+                return
 
         # Get port configuration
         max_slots = project_config.get_max_slots()
