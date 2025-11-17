@@ -263,6 +263,8 @@ class ProjectConfig:
             "type": config.get("type", "generic"),
             "features": features,
             "custom_actions": custom_actions,
+            "mcp_servers": config.get("mcp_servers", []),
+            "port_config": config.get("port_config", {}),
         }
 
     def _get_default_config(self) -> Dict[str, Any]:
@@ -331,6 +333,16 @@ class ProjectConfig:
         if "custom_actions" not in self._config:
             self._config["custom_actions"] = []
         self._config["custom_actions"].append(action)
+
+    def get_mcp_servers(self) -> List[Dict[str, Any]]:
+        """Get list of MCP servers to configure"""
+        return self._config.get("mcp_servers", [])
+
+    def add_mcp_server(self, server: Dict[str, Any]):
+        """Add an MCP server configuration"""
+        if "mcp_servers" not in self._config:
+            self._config["mcp_servers"] = []
+        self._config["mcp_servers"].append(server)
 
 
 class GitWorktree:
@@ -2078,7 +2090,7 @@ class CprojCLI:
             "--type", help="Project type", choices=["tool", "web-app", "library", "generic"]
         )
         init_project_parser.add_argument(
-            "--template", help="Configuration template", choices=["cproj", "trivalley", "minimal"]
+            "--template", help="Configuration template", choices=["cproj", "web-app", "trivalley", "minimal"]
         )
 
         # worktree create command
@@ -2528,7 +2540,7 @@ class CprojCLI:
             except OSError as e:
                 print(f"⚠️  Failed to create .cursorrules symlink: {e}")
 
-    def _setup_nvm_for_claude(self, worktree_path: Path, node_env: Dict):
+    def _setup_nvm_for_claude(self, worktree_path: Path, node_env: Dict, project_config: ProjectConfig = None):
         """Setup nvm and create a script to automatically use LTS for Claude
         CLI"""
         # Check if nvm is available on the system (regardless of project setup)
@@ -2565,6 +2577,8 @@ class CprojCLI:
 
                 # Create a setup script that sources nvm and uses LTS
                 setup_script = cproj_dir / "setup-claude.sh"
+
+                # Build base script
                 script_content = """#!/bin/bash
 # Auto-generated script to setup Node.js for Claude CLI
 # Run: source .cproj/setup-claude.sh
@@ -2585,19 +2599,35 @@ export NVM_DIR="$HOME/.nvm"
 nvm use --lts
 
 echo "✅ Node.js LTS activated. You can now run 'claude' command."
-
-# Setup Linear MCP
-echo "🔗 Setting up Linear MCP..."
-claude mcp add --transport sse linear-server https://mcp.linear.app/sse
-echo "✅ Linear MCP configured."
-
-# Setup Playwright MCP
-echo "🎭 Setting up Playwright MCP..."
-claude mcp add playwright npx @playwright/mcp@latest
-echo "✅ Playwright MCP configured."
-
-echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new terminal in this directory"
 """
+
+                # Add MCP server setup if configured
+                if project_config:
+                    mcp_servers = project_config.get_mcp_servers()
+                    if mcp_servers:
+                        script_content += "\n# Setup MCP servers\n"
+                        for server in mcp_servers:
+                            name = server.get("name", "unknown")
+                            transport = server.get("transport")
+                            url = server.get("url")
+                            command = server.get("command")
+
+                            script_content += f'echo "🔗 Setting up {name} MCP..."\n'
+
+                            if transport and url:
+                                # SSE transport
+                                script_content += f"claude mcp add --transport {transport} {name} {url}\n"
+                            elif command:
+                                # Command-based (like npx)
+                                script_content += f"claude mcp add {name} {command}\n"
+                            else:
+                                script_content += f'echo "⚠️  Skipping {name}: missing transport/url or command"\n'
+                                continue
+
+                            script_content += f'echo "✅ {name} MCP configured."\n'
+
+                script_content += '\necho "💡 Tip: Run \'source .cproj/setup-claude.sh\' whenever you open a new terminal in this directory"\n'
+
                 setup_script.write_text(script_content)
                 setup_script.chmod(0o755)
 
@@ -2984,8 +3014,9 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         # Apply template or prompt for features
         if args.template == "cproj":
             self._apply_cproj_template(project_config)
-        elif args.template == "trivalley":
-            self._apply_trivalley_template(project_config)
+        elif args.template in ["web-app", "trivalley"]:
+            # trivalley is an alias for web-app (backward compatibility)
+            self._apply_web_app_template(project_config, repo_path)
         elif args.template == "minimal":
             self._apply_minimal_template(project_config)
         else:
@@ -3011,21 +3042,42 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
         config.enable_feature("nvm_setup", True)
         config.enable_feature("env_sync_check", True)
 
-    def _apply_trivalley_template(self, config: ProjectConfig):
-        """Apply trivalley project template"""
+    def _apply_web_app_template(self, config: ProjectConfig, repo_path: Path):
+        """Apply web-app project template (formerly trivalley)"""
         config.enable_feature("claude_workspace", True)
         config.enable_feature("claude_symlink", False)
         config.enable_feature("review_agents", True)
         config.enable_feature("nvm_setup", True)
         config.enable_feature("env_sync_check", True)
 
-        # Add custom action to copy workspace file
-        config.add_custom_action(
+        # Auto-detect and add workspace file if it exists
+        workspace_files = list(repo_path.glob("*.code-workspace"))
+        if workspace_files:
+            source_file = workspace_files[0].name
+            # Extract project name from workspace file (remove .code-workspace)
+            project_name_from_file = source_file.replace(".code-workspace", "")
+
+            config.add_custom_action(
+                {
+                    "type": "copy_workspace_file",
+                    "description": f"Copy {source_file} with worktree-specific name",
+                    "source": source_file,
+                    "destination_pattern": f"{{worktree_dir}}_{project_name_from_file}.code-workspace",
+                }
+            )
+
+        # Add MCP servers commonly used in web apps
+        config.add_mcp_server(
             {
-                "type": "copy_workspace_file",
-                "description": "Copy trivalley.code-workspace with worktree-specific name",
-                "source": "trivalley.code-workspace",
-                "destination_pattern": "{worktree_dir}_trivalley.code-workspace",
+                "name": "linear-server",
+                "transport": "sse",
+                "url": "https://mcp.linear.app/sse",
+            }
+        )
+        config.add_mcp_server(
+            {
+                "name": "playwright",
+                "command": "npx @playwright/mcp@latest",
             }
         )
 
@@ -3367,7 +3419,7 @@ echo "💡 Tip: Run 'source .cproj/setup-claude.sh' whenever you open a new term
             self._setup_claude_symlink(worktree_path, repo_path)
 
         if project_config.is_feature_enabled("nvm_setup"):
-            self._setup_nvm_for_claude(worktree_path, node_env)
+            self._setup_nvm_for_claude(worktree_path, node_env, project_config)
 
         if project_config.is_feature_enabled("claude_workspace"):
             self._setup_claude_workspace(worktree_path, repo_path, args)
