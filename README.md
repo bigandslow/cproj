@@ -70,8 +70,9 @@ Get up and running with parallel AI development in minutes:
 # 1. Install cproj
 make install
 
-# 2. Initialize project configuration
-cproj init
+# 2. Initialize system and project
+cproj init                              # System config
+cproj init-project --template web-app   # Project config (optional)
 # Configures: repo path, base branch, environment preferences, integrations
 
 # 3. Generate AI-powered tickets
@@ -286,6 +287,9 @@ cproj cleanup --pattern "exp-*" # Remove experimental branches
 | `cproj config` | Manage settings | `cproj config --list` |
 | `cproj open` | Open workspace tools | `cproj open --editor` |
 | `cproj linear setup` | Configure Linear | `cproj linear setup` |
+| `cproj init-project` | Initialize project config | `cproj init-project --template web-app` |
+| `cproj ports list` | Show port allocations | `cproj ports list` |
+| `cproj ports allocate` | Allocate port offset | `cproj ports allocate --offset 5` |
 
 ### 💡 **Quick Examples**
 
@@ -389,19 +393,43 @@ cproj config temp_root ~/.cache/workspaces
 cproj config --json
 ```
 
-### Configuration File
+### System Configuration File
 Located at `~/.config/cproj/config.json`:
 
 ```json
 {
   "repo_path": "/Users/me/dev/my-project",
-  "project_name": "My Project", 
+  "project_name": "My Project",
   "base_branch": "main",
   "temp_root": "/tmp",
   "terminal": "iTerm",
   "editor": "code"
 }
 ```
+
+### Project Configuration File
+Per-project settings in `.cproj/project.yaml`:
+
+```yaml
+name: my-project
+type: web-app
+features:
+  claude_workspace: true      # Setup .claude directory
+  review_agents: true         # Enable AI review agents
+  nvm_setup: true            # Node.js integration
+  port_allocation: true      # Auto port offsets
+port_config:
+  base_port: 3000
+  max_slots: 99
+mcp_servers:
+  - name: linear-server
+    transport: sse
+    url: "https://mcp.linear.app/sse"
+  - name: playwright
+    command: "npx @playwright/mcp@latest"
+```
+
+**Templates:** Use `cproj init-project --template web-app|cproj|minimal` to initialize
 
 ## Environment Setup
 
@@ -422,6 +450,29 @@ Located at `~/.config/cproj/config.json`:
 ### Pre-commit & direnv
 - Installs pre-commit hooks if `.pre-commit-config.yaml` exists
 - Creates `.envrc` and runs `direnv allow` if enabled
+
+### Port Allocation
+- Automatic port offset assignment for parallel worktrees
+- Configured per-project in `.cproj/project.yaml`
+- Each worktree gets unique `CPROJ_PORT_OFFSET` (0-99)
+- Exposed via `.cproj/ports.env` in each worktree
+
+**Commands:**
+```bash
+cproj ports list              # Show allocations
+cproj ports allocate          # Allocate for current worktree
+cproj ports free OFFSET       # Free specific offset
+```
+
+**Usage in your code:**
+```bash
+# In your worktree, source the setup script
+source .cproj/setup-claude.sh
+
+# Use the offset to calculate ports
+PORT=$((CPROJ_BASE_PORT + CPROJ_PORT_OFFSET))
+# e.g., base_port=3000, offset=2 → PORT=3002
+```
 
 ## Integrations
 
@@ -462,6 +513,20 @@ cproj worktree create --branch feature/ABC-123 --linear https://linear.app/...
 # Opens in browser with cproj open
 cproj open
 ```
+
+### MCP Servers (Claude Desktop)
+Configure project-specific MCP servers in `.cproj/project.yaml`:
+
+```yaml
+mcp_servers:
+  - name: linear-server
+    transport: sse
+    url: "https://mcp.linear.app/sse"
+  - name: playwright
+    command: "npx @playwright/mcp@latest"
+```
+
+Auto-configured when running `source .cproj/setup-claude.sh` in each worktree
 
 ## Workspace Metadata (.agent.json)
 
