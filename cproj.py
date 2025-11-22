@@ -265,6 +265,7 @@ class ProjectConfig:
             "custom_actions": custom_actions,
             "mcp_servers": config.get("mcp_servers", []),
             "port_config": config.get("port_config", {}),
+            "base_branch": config.get("base_branch", "main"),
         }
 
     def _get_default_config(self) -> Dict[str, Any]:
@@ -280,6 +281,7 @@ class ProjectConfig:
                 "env_sync_check": False,
             },
             "custom_actions": [],
+            "base_branch": "main",
         }
 
     def save(self):
@@ -323,6 +325,14 @@ class ProjectConfig:
     def get_max_slots(self) -> int:
         """Get maximum port slots"""
         return self.get_port_config().get("max_slots", 99)
+
+    def get_base_branch(self) -> str:
+        """Get the default base branch for creating new branches"""
+        return self._config.get("base_branch", "main")
+
+    def set_base_branch(self, branch: str):
+        """Set the default base branch for creating new branches"""
+        self._config["base_branch"] = branch
 
     def get_custom_actions(self) -> List[Dict[str, Any]]:
         """Get list of custom actions"""
@@ -2963,6 +2973,7 @@ echo "✅ Node.js LTS activated. You can now run 'claude' command."
             print("Current configuration:")
             print(f"   Name: {project_config.get_project_name()}")
             print(f"   Type: {project_config.get_project_type()}")
+            print(f"   Base branch: {project_config.get_base_branch()}")
             print("   Features:")
             for feature in [
                 "claude_workspace",
@@ -3024,6 +3035,13 @@ echo "✅ Node.js LTS activated. You can now run 'claude' command."
 
         # Set project info
         project_config.set_project_info(project_name, project_type)
+
+        # Prompt for base branch
+        print()
+        current_base = project_config.get_base_branch()
+        base_branch_input = input(f"Default base branch [{current_base}]: ").strip()
+        if base_branch_input:
+            project_config.set_base_branch(base_branch_input)
 
         # Save configuration
         project_config.save()
@@ -3253,7 +3271,6 @@ echo "✅ Node.js LTS activated. You can now run 'claude' command."
 
         # Derive project settings from repository
         project_name = repo_path.name
-        base_branch = args.base or self._detect_default_branch(repo_path) or "main"
         temp_root = Path(
             args.temp_root
             or self.config.get("temp_root", tempfile.gettempdir())
@@ -3264,6 +3281,14 @@ echo "✅ Node.js LTS activated. You can now run 'claude' command."
 
         # Load project configuration
         project_config = ProjectConfig(repo_path)
+
+        # Get base branch from args, project config, or auto-detect
+        if args.base:
+            base_branch = args.base
+        elif project_config.config_path.exists():
+            base_branch = project_config.get_base_branch()
+        else:
+            base_branch = self._detect_default_branch(repo_path) or "main"
         if not project_config.config_path.exists():
             print(f"⚠️  No project configuration found for {project_name}")
             print("   Consider running 'cproj init-project' to configure project-specific features")
@@ -4737,7 +4762,13 @@ echo "✅ Node.js LTS activated. You can now run 'claude' command."
         if not repo_path:
             raise CprojError(f"Not in a git repository: {worktree_path}")
 
-        # Get project config
+        # Check if we're in a worktree - if so, get main repo path from .agent.json
+        agent_json_path = repo_path / ".cproj" / ".agent.json"
+        if agent_json_path.exists():
+            agent_json = AgentJson(repo_path)
+            repo_path = Path(agent_json.data["project"]["repo_path"])
+
+        # Get project config (from main repo if we're in a worktree)
         project_config = ProjectConfig(repo_path)
         project_name = project_config.get_project_name()
 
