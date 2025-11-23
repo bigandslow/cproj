@@ -2646,7 +2646,7 @@ echo "✅ Node.js LTS activated. You can now run 'claude' command."
                             script_content += f'echo "✅ {name} MCP configured."\n'
 
                 script_content += (
-                    '\necho "💡 Tip: Run \'source .cproj/setup-claude.sh\' '
+                    "\necho \"💡 Tip: Run 'source .cproj/setup-claude.sh' "
                     'whenever you open a new terminal in this directory"\n'
                 )
 
