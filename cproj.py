@@ -2100,7 +2100,9 @@ class CprojCLI:
             "--type", help="Project type", choices=["tool", "web-app", "library", "generic"]
         )
         init_project_parser.add_argument(
-            "--template", help="Configuration template", choices=["cproj", "web-app", "trivalley", "minimal"]
+            "--template",
+            help="Configuration template",
+            choices=["cproj", "web-app", "trivalley", "minimal"],
         )
 
         # worktree create command
@@ -2550,7 +2552,9 @@ class CprojCLI:
             except OSError as e:
                 print(f"⚠️  Failed to create .cursorrules symlink: {e}")
 
-    def _setup_nvm_for_claude(self, worktree_path: Path, node_env: Dict, project_config: ProjectConfig = None):
+    def _setup_nvm_for_claude(
+        self, worktree_path: Path, node_env: Dict, project_config: Optional[ProjectConfig] = None
+    ):
         """Setup nvm and create a script to automatically use LTS for Claude
         CLI"""
         # Check if nvm is available on the system (regardless of project setup)
@@ -2626,17 +2630,25 @@ echo "✅ Node.js LTS activated. You can now run 'claude' command."
 
                             if transport and url:
                                 # SSE transport
-                                script_content += f"claude mcp add --transport {transport} {name} {url}\n"
+                                script_content += (
+                                    f"claude mcp add --transport {transport} {name} {url}\n"
+                                )
                             elif command:
                                 # Command-based (like npx)
                                 script_content += f"claude mcp add {name} {command}\n"
                             else:
-                                script_content += f'echo "⚠️  Skipping {name}: missing transport/url or command"\n'
+                                script_content += (
+                                    f'echo "⚠️  Skipping {name}: '
+                                    'missing transport/url or command"\n'
+                                )
                                 continue
 
                             script_content += f'echo "✅ {name} MCP configured."\n'
 
-                script_content += '\necho "💡 Tip: Run \'source .cproj/setup-claude.sh\' whenever you open a new terminal in this directory"\n'
+                script_content += (
+                    '\necho "💡 Tip: Run \'source .cproj/setup-claude.sh\' '
+                    'whenever you open a new terminal in this directory"\n'
+                )
 
                 setup_script.write_text(script_content)
                 setup_script.chmod(0o755)
@@ -3080,7 +3092,9 @@ echo "✅ Node.js LTS activated. You can now run 'claude' command."
                     "type": "copy_workspace_file",
                     "description": f"Copy {source_file} with worktree-specific name",
                     "source": source_file,
-                    "destination_pattern": f"{{worktree_dir}}_{project_name_from_file}.code-workspace",
+                    "destination_pattern": (
+                        f"{{worktree_dir}}_{project_name_from_file}.code-workspace"
+                    ),
                 }
             )
 
@@ -3180,9 +3194,7 @@ echo "✅ Node.js LTS activated. You can now run 'claude' command."
         except OSError as e:
             logger.warning(f"Failed to copy workspace file: {e}")
 
-    def _execute_copy_directory(
-        self, action: Dict[str, Any], worktree_path: Path, repo_path: Path
-    ):
+    def _execute_copy_directory(self, action: Dict[str, Any], worktree_path: Path, repo_path: Path):
         """Execute copy directory action"""
         source = action.get("source")
         destination = action.get("destination")
@@ -3219,9 +3231,7 @@ echo "✅ Node.js LTS activated. You can now run 'claude' command."
         except OSError as e:
             logger.warning(f"Failed to copy directory: {e}")
 
-    def _execute_run_command(
-        self, action: Dict[str, Any], worktree_path: Path, repo_path: Path
-    ):
+    def _execute_run_command(self, action: Dict[str, Any], worktree_path: Path, repo_path: Path):
         """Execute shell command action"""
         command = action.get("command")
         description = action.get("description", "Running custom command")
@@ -3507,9 +3517,8 @@ echo "✅ Node.js LTS activated. You can now run 'claude' command."
         project_config = ProjectConfig(repo_path)
 
         # Check for env file differences if feature is enabled and not skipped
-        if (
-            project_config.is_feature_enabled("env_sync_check")
-            and not getattr(args, "skip_env_sync", False)
+        if project_config.is_feature_enabled("env_sync_check") and not getattr(
+            args, "skip_env_sync", False
         ):
             env_setup = EnvironmentSetup(worktree_path)
             different_env_files = env_setup.check_env_differences(repo_path)
@@ -4196,8 +4205,12 @@ echo "✅ Node.js LTS activated. You can now run 'claude' command."
                                                         "port_allocation"
                                                     ):
                                                         port_registry = PortRegistry()
-                                                        project_name = project_config.get_project_name()
-                                                        port_registry.deallocate(project_name, wt_path)
+                                                        project_name = (
+                                                            project_config.get_project_name()
+                                                        )
+                                                        port_registry.deallocate(
+                                                            project_name, wt_path
+                                                        )
 
                                                     if branch_name:
                                                         print(
@@ -4207,8 +4220,7 @@ echo "✅ Node.js LTS activated. You can now run 'claude' command."
                                                         )
                                                     else:
                                                         print(
-                                                            f"✅ Force removed "
-                                                            f"{wt_path.name}"
+                                                            f"✅ Force removed " f"{wt_path.name}"
                                                         )
                                                 except Exception as force_e:
                                                     print(
@@ -4785,16 +4797,16 @@ echo "✅ Node.js LTS activated. You can now run 'claude' command."
                 if not project_config.get_port_config():
                     print()
                     print("📊 Port Configuration")
-                    base_port_input = input(f"Base port [3000]: ").strip()
+                    base_port_input = input("Base port [3000]: ").strip()
                     base_port = int(base_port_input) if base_port_input else 3000
 
-                    max_slots_input = input(f"Maximum concurrent worktrees [99]: ").strip()
+                    max_slots_input = input("Maximum concurrent worktrees [99]: ").strip()
                     max_slots = int(max_slots_input) if max_slots_input else 99
 
                     # Update config with port settings
                     project_config._config["port_config"] = {
                         "base_port": base_port,
-                        "max_slots": max_slots
+                        "max_slots": max_slots,
                     }
 
                 project_config.save()
@@ -4834,9 +4846,7 @@ echo "✅ Node.js LTS activated. You can now run 'claude' command."
                 # Find which worktree has this offset
                 for path, off in allocations.items():
                     if off == offset:
-                        raise CprojError(
-                            f"Offset {offset} is already allocated to: {path}"
-                        )
+                        raise CprojError(f"Offset {offset} is already allocated to: {path}")
         else:
             # Auto-assign next available
             offset = port_registry.get_next_available_offset(project_name, max_slots)
@@ -4901,7 +4911,7 @@ echo "✅ Node.js LTS activated. You can now run 'claude' command."
             ports_env_path = worktree_path / ".cproj" / "ports.env"
             if ports_env_path.exists():
                 ports_env_path.unlink()
-                print(f"   Removed ports.env file")
+                print("   Removed ports.env file")
         else:
             raise CprojError(f"Failed to free port offset {args.offset}")
 
