@@ -307,7 +307,7 @@ index 1234567..abcdefg 100644
             # This would normally timeout
             subprocess.run(['git', 'status'], timeout=0.001, cwd=temp_repo, check=True)
 
-    def test_git_worktree_cleanup_logic(self, _temp_repo):
+    def test_git_worktree_cleanup_logic(self, temp_repo):
         """Test worktree cleanup logic"""
 
         # Test age calculation logic
