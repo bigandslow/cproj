@@ -3162,6 +3162,10 @@ echo "✅ Node.js LTS activated. You can now run 'claude' command."
                 self._execute_copy_directory(action, worktree_path, repo_path)
             elif action_type == "run_command":
                 self._execute_run_command(action, worktree_path, repo_path)
+            elif action_type == "copy_env_files":
+                self._execute_copy_env_files(action, worktree_path, repo_path)
+            elif action_type == "allocate_port":
+                self._execute_allocate_port(action, worktree_path, repo_path, project_config)
             else:
                 logger.warning(f"Unknown custom action type: {action_type}")
 
@@ -3259,6 +3263,42 @@ echo "✅ Node.js LTS activated. You can now run 'claude' command."
             error_msg = e.stderr.strip() if e.stderr else str(e)
             print(f"⚠️  Command failed: {error_msg}")
             logger.warning(f"Failed to run command '{command}': {error_msg}")
+
+    def _execute_copy_env_files(self, action: Dict[str, Any], worktree_path: Path, repo_path: Path):
+        """Execute copy_env_files action"""
+        description = action.get("description", "Copying .env files")
+        print(f"📄 {description}")
+
+        env_setup = EnvironmentSetup(worktree_path)
+        env_setup.copy_env_files(repo_path)
+
+    def _execute_allocate_port(
+        self,
+        action: Dict[str, Any],
+        worktree_path: Path,
+        repo_path: Path,
+        project_config: ProjectConfig,
+    ):
+        """Execute allocate_port action"""
+        description = action.get("description", "Allocating port offset")
+        print(f"📡 {description}")
+
+        project_name = project_config.get_project_name()
+        port_registry = PortRegistry()
+        max_slots = project_config.get_max_slots()
+        base_port = project_config.get_base_port()
+
+        # Get next available offset
+        offset = port_registry.get_next_available_offset(project_name, max_slots)
+
+        if offset is None:
+            print(f"⚠️  Warning: All port slots (0-{max_slots}) are allocated!")
+            print("   Run 'cproj cleanup' to free up unused worktrees")
+        else:
+            # Allocate port offset
+            if port_registry.allocate(project_name, worktree_path, offset):
+                env_setup = EnvironmentSetup(worktree_path)
+                env_setup.write_ports_env(offset, base_port)
 
     def cmd_worktree_create(self, args):
         """Create worktree"""
@@ -3432,9 +3472,8 @@ echo "✅ Node.js LTS activated. You can now run 'claude' command."
         node_env = env_setup.setup_node(args.node_install)
         java_env = env_setup.setup_java(args.java_build)
 
-        # Copy .env files if requested
-        if args.copy_env:
-            env_setup.copy_env_files(repo_path)
+        # Note: .env file copying is now handled by custom_actions in project.yaml
+        # Use action type: copy_env_files
 
         # Create .agent.json
         agent_json = AgentJson(worktree_path)
@@ -3459,25 +3498,11 @@ echo "✅ Node.js LTS activated. You can now run 'claude' command."
         if project_config.is_feature_enabled("claude_workspace"):
             self._setup_claude_workspace(worktree_path, repo_path, args)
 
-        # Execute any custom actions
+        # Execute custom actions (including .env copy and port allocation)
+        # Custom actions are executed in the order specified in project.yaml
+        # This allows projects to control when .env files are copied, when ports
+        # are allocated, and when project-specific scripts (like update-env-ports.sh) run
         self._execute_custom_actions(project_config, worktree_path, repo_path)
-
-        # Handle port allocation if enabled
-        if project_config.is_feature_enabled("port_allocation"):
-            port_registry = PortRegistry()
-            max_slots = project_config.get_max_slots()
-            base_port = project_config.get_base_port()
-
-            # Get next available offset
-            offset = port_registry.get_next_available_offset(project_name, max_slots)
-
-            if offset is None:
-                print("⚠️  Warning: All port slots (0-{max_slots}) are allocated!")
-                print("   Run 'cproj cleanup' to free up unused worktrees")
-            else:
-                # Allocate port offset
-                if port_registry.allocate(project_name, worktree_path, offset):
-                    env_setup.write_ports_env(offset, base_port)
 
         print(f"Created worktree: {worktree_path}")
         print(f"Branch: {args.branch}")
@@ -4697,6 +4722,48 @@ echo "✅ Node.js LTS activated. You can now run 'claude' command."
             dry_run=args.dry_run,
             backup=args.backup,
         )
+
+        # Run post-sync scripts if configured (e.g., update-env-ports.sh)
+        if not args.dry_run:
+            self._run_post_sync_hooks(current_path, main_repo_path)
+
+    def _run_post_sync_hooks(self, worktree_path: Path, repo_path: Path):
+        """Run project-specific post-sync hooks"""
+        # Load project config to check for post-sync actions
+        project_config = ProjectConfig(repo_path)
+        post_sync_actions = project_config._config.get("post_sync_actions", [])
+
+        if not post_sync_actions:
+            return
+
+        print("\n🔧 Running post-sync hooks...")
+        for action in post_sync_actions:
+            action_type = action.get("type")
+
+            if action_type == "run_command":
+                command = action.get("command")
+                description = action.get("description", "Running post-sync command")
+
+                if not command:
+                    continue
+
+                print(f"  {description}")
+                try:
+                    result = subprocess.run(
+                        command,
+                        cwd=worktree_path,
+                        shell=True,
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                    )
+                    if result.stdout:
+                        print(f"  {result.stdout.strip()}")
+                    print("  ✅ Completed")
+                except subprocess.CalledProcessError as e:
+                    error_msg = e.stderr.strip() if e.stderr else str(e)
+                    print(f"  ⚠️  Failed: {error_msg}")
+                    logger.warning(f"Post-sync hook failed: {error_msg}")
 
     def cmd_config(self, args):
         """Configuration management"""
