@@ -264,6 +264,7 @@ class ProjectConfig:
             "features": features,
             "custom_actions": custom_actions,
             "mcp_servers": config.get("mcp_servers", []),
+            "mcp_servers_enabled_by_default": config.get("mcp_servers_enabled_by_default", True),
             "port_config": config.get("port_config", {}),
             "base_branch": config.get("base_branch", "main"),
         }
@@ -353,6 +354,10 @@ class ProjectConfig:
         if "mcp_servers" not in self._config:
             self._config["mcp_servers"] = []
         self._config["mcp_servers"].append(server)
+
+    def are_mcps_enabled_by_default(self) -> bool:
+        """Check if MCP servers should be enabled by default"""
+        return self._config.get("mcp_servers_enabled_by_default", True)
 
 
 class GitWorktree:
@@ -1720,12 +1725,16 @@ class GitHubIntegration:
         body: str,
         draft: bool = True,
         assignees: Optional[List[str]] = None,
+        base: Optional[str] = None,
     ) -> Optional[str]:
         """Create a pull request"""
         if not GitHubIntegration.ensure_auth():
             return None
 
         cmd = ["gh", "pr", "create", "--title", title, "--body", body]
+
+        if base:
+            cmd.extend(["--base", base])
 
         if draft:
             cmd.append("--draft")
@@ -2615,35 +2624,23 @@ nvm use --lts
 echo "✅ Node.js LTS activated. You can now run 'claude' command."
 """
 
-                # Add MCP server setup if configured
+                # Add conditional MCP setup based on configuration
                 if project_config:
+                    mcp_enabled = project_config.are_mcps_enabled_by_default()
                     mcp_servers = project_config.get_mcp_servers()
-                    if mcp_servers:
-                        script_content += "\n# Setup MCP servers\n"
-                        for server in mcp_servers:
-                            name = server.get("name", "unknown")
-                            transport = server.get("transport")
-                            url = server.get("url")
-                            command = server.get("command")
 
-                            script_content += f'echo "🔗 Setting up {name} MCP..."\n'
-
-                            if transport and url:
-                                # SSE transport
-                                script_content += (
-                                    f"claude mcp add --transport {transport} {name} {url}\n"
-                                )
-                            elif command:
-                                # Command-based (like npx)
-                                script_content += f"claude mcp add {name} {command}\n"
-                            else:
-                                script_content += (
-                                    f'echo "⚠️  Skipping {name}: '
-                                    'missing transport/url or command"\n'
-                                )
-                                continue
-
-                            script_content += f'echo "✅ {name} MCP configured."\n'
+                    if mcp_servers and mcp_enabled:
+                        # Include MCP setup directly in setup-claude.sh
+                        script_content += (
+                            "\n# MCPs are configured to run automatically\n"
+                            "source .cproj/install-mcps.sh\n"
+                        )
+                    elif mcp_servers and not mcp_enabled:
+                        # Add note about manual MCP installation
+                        script_content += (
+                            "\n# MCP servers are available but not enabled by default\n"
+                            "# To install them, run: source .cproj/install-mcps.sh\n"
+                        )
 
                 script_content += (
                     "\necho \"💡 Tip: Run 'source .cproj/setup-claude.sh' "
@@ -2659,8 +2656,69 @@ echo "✅ Node.js LTS activated. You can now run 'claude' command."
                     "to activate Node.js LTS"
                 )
 
+                # Generate separate MCP installation script if MCPs are configured
+                if project_config:
+                    mcp_servers = project_config.get_mcp_servers()
+                    if mcp_servers:
+                        self._generate_mcp_install_script(worktree_path, project_config)
+
             except OSError as e:
                 print(f"⚠️  Failed to create nvm setup script: {e}")
+
+    def _generate_mcp_install_script(self, worktree_path: Path, project_config: ProjectConfig):
+        """Generate a separate MCP installation script"""
+        try:
+            cproj_dir = worktree_path / ".cproj"
+            cproj_dir.mkdir(exist_ok=True)
+
+            install_script = cproj_dir / "install-mcps.sh"
+
+            # Build MCP installation script
+            script_content = """#!/bin/bash
+# Auto-generated script to install MCP servers
+# Run: source .cproj/install-mcps.sh
+
+echo "🔗 Installing MCP servers..."
+
+"""
+
+            mcp_servers = project_config.get_mcp_servers()
+            for server in mcp_servers:
+                name = server.get("name", "unknown")
+                transport = server.get("transport")
+                url = server.get("url")
+                command = server.get("command")
+
+                script_content += f'echo "🔗 Setting up {name} MCP..."\n'
+
+                if transport and url:
+                    # SSE transport
+                    script_content += f"claude mcp add --transport {transport} {name} {url}\n"
+                elif command:
+                    # Command-based (like npx)
+                    script_content += f"claude mcp add {name} {command}\n"
+                else:
+                    script_content += (
+                        f'echo "⚠️  Skipping {name}: ' 'missing transport/url or command"\n'
+                    )
+                    continue
+
+                script_content += f'echo "✅ {name} MCP configured."\n\n'
+
+            script_content += 'echo "✅ All MCP servers installed."\n'
+
+            install_script.write_text(script_content)
+            install_script.chmod(0o755)
+
+            mcp_enabled = project_config.are_mcps_enabled_by_default()
+            if mcp_enabled:
+                print("✅ Created .cproj/install-mcps.sh (auto-enabled)")
+            else:
+                print("✅ Created .cproj/install-mcps.sh (manual install)")
+                print("💡 To install MCP servers, run: " "source .cproj/install-mcps.sh")
+
+        except OSError as e:
+            print(f"⚠️  Failed to create MCP install script: {e}")
 
     def _setup_claude_workspace(self, worktree_path: Path, repo_path: Path, args=None):
         """Setup Claude workspace configuration with commands and agents"""
@@ -3247,6 +3305,13 @@ echo "✅ Node.js LTS activated. You can now run 'claude' command."
         print(f"🔧 {description}")
 
         try:
+            # Check if setup-claude.sh exists to source nvm/Node.js environment
+            setup_script = worktree_path / ".cproj" / "setup-claude.sh"
+            if setup_script.exists():
+                # Source the setup script before running the command
+                # This makes nvm and Node.js available for commands that need them
+                command = f"source .cproj/setup-claude.sh && {command}"
+
             # Run command in the worktree directory
             result = subprocess.run(
                 command,
@@ -3255,6 +3320,7 @@ echo "✅ Node.js LTS activated. You can now run 'claude' command."
                 check=True,
                 capture_output=True,
                 text=True,
+                executable="/bin/bash",
             )
             if result.stdout:
                 print(result.stdout.strip())
@@ -3597,7 +3663,10 @@ echo "✅ Node.js LTS activated. You can now run 'claude' command."
             draft = args.draft if hasattr(args, "draft") else False
             assignees = args.assign.split(",") if args.assign else None
 
-            pr_url = GitHubIntegration.create_pr(title, body, draft, assignees)
+            # Get base branch from project config
+            base_branch = project_config.get_base_branch()
+
+            pr_url = GitHubIntegration.create_pr(title, body, draft, assignees, base=base_branch)
             if pr_url:
                 agent_json.set_link("pr", pr_url)
                 agent_json.save()
@@ -4022,6 +4091,15 @@ echo "✅ Node.js LTS activated. You can now run 'claude' command."
             print("No configured repository")
             return
 
+        # Get project config to check for custom base branch
+        project_config = ProjectConfig(repo_path)
+        base_branch = project_config.get_base_branch()
+
+        # Define protected branches - never clean these up
+        protected_branches = ["main", "master", "develop"]
+        if base_branch not in protected_branches:
+            protected_branches.append(base_branch)
+
         git = GitWorktree(repo_path)
         worktrees = git.list_worktrees()
 
@@ -4040,8 +4118,12 @@ echo "✅ Node.js LTS activated. You can now run 'claude' command."
             print("🧹 Cleanup Worktrees")
             print("-" * 50)
 
-            # Show current worktrees with ages
-            active_worktrees = [wt for wt in worktrees if Path(wt["path"]) != repo_path]
+            # Show current worktrees with ages (excluding protected branches)
+            active_worktrees = [
+                wt
+                for wt in worktrees
+                if Path(wt["path"]) != repo_path and wt.get("branch") not in protected_branches
+            ]
             if not active_worktrees:
                 print("No worktrees to clean up.")
                 return
@@ -4320,6 +4402,12 @@ echo "✅ Node.js LTS activated. You can now run 'claude' command."
         for wt in worktrees:
             path = Path(wt["path"])
             if path == repo_path:  # Skip main worktree
+                continue
+
+            # Skip worktrees on protected branches
+            branch = wt.get("branch")
+            if branch in protected_branches:
+                logger.debug(f"Skipping worktree {path.name} - on protected branch '{branch}'")
                 continue
 
             should_remove = False
@@ -4749,6 +4837,12 @@ echo "✅ Node.js LTS activated. You can now run 'claude' command."
 
                 print(f"  {description}")
                 try:
+                    # Check if setup-claude.sh exists to source nvm/Node.js
+                    setup_script = worktree_path / ".cproj" / "setup-claude.sh"
+                    if setup_script.exists():
+                        # Source the setup script before running the command
+                        command = f"source .cproj/setup-claude.sh && {command}"
+
                     result = subprocess.run(
                         command,
                         cwd=worktree_path,
@@ -4756,6 +4850,7 @@ echo "✅ Node.js LTS activated. You can now run 'claude' command."
                         check=True,
                         capture_output=True,
                         text=True,
+                        executable="/bin/bash",
                     )
                     if result.stdout:
                         print(f"  {result.stdout.strip()}")

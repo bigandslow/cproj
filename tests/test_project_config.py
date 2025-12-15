@@ -93,3 +93,43 @@ class TestProjectConfig:
 
         # Assert
         assert config.get_base_branch() == "develop"
+
+    def test_mcp_enabled_by_default(self, temp_repo_dir):
+        """Test that MCPs are enabled by default when not specified"""
+        # Arrange & Act
+        config = ProjectConfig(temp_repo_dir)
+
+        # Assert
+        assert config.are_mcps_enabled_by_default() == True
+
+    def test_mcp_disabled_when_configured(self, temp_repo_dir):
+        """Test that MCPs can be disabled via configuration"""
+        # Arrange
+        config_dir = temp_repo_dir / ".cproj"
+        config_dir.mkdir()
+        config_file = config_dir / "project.yaml"
+
+        with open(config_file, "w") as f:
+            yaml.dump({"mcp_servers_enabled_by_default": False}, f)
+
+        # Act
+        config = ProjectConfig(temp_repo_dir)
+
+        # Assert
+        assert config.are_mcps_enabled_by_default() == False
+
+    def test_mcp_enabled_when_explicitly_set_true(self, temp_repo_dir):
+        """Test that MCPs can be explicitly enabled"""
+        # Arrange
+        config_dir = temp_repo_dir / ".cproj"
+        config_dir.mkdir()
+        config_file = config_dir / "project.yaml"
+
+        with open(config_file, "w") as f:
+            yaml.dump({"mcp_servers_enabled_by_default": True}, f)
+
+        # Act
+        config = ProjectConfig(temp_repo_dir)
+
+        # Assert
+        assert config.are_mcps_enabled_by_default() == True
