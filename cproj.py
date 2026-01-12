@@ -817,7 +817,13 @@ class WorktreeStatus:
 
         repo_path = Path(self.agent_json.data["project"]["repo_path"])
         branch = self.agent_json.data["workspace"]["branch"]
-        base_branch = self.agent_json.data["workspace"]["base"]
+
+        # Get base_branch from project config (source of truth), fall back to agent.json
+        project_config = ProjectConfig(repo_path)
+        if project_config.config_path.exists():
+            base_branch = project_config.get_base_branch()
+        else:
+            base_branch = self.agent_json.data["workspace"]["base"]
 
         git = GitWorktree(repo_path)
 
@@ -852,12 +858,12 @@ class WorktreeStatus:
         self, local_status: Dict, branch_comparison: Dict, pr_status: Optional[Dict]
     ) -> str:
         """Determine overall status description"""
-        # Check if PR was merged and branch is behind main - needs cleanup or pull
-        if pr_status and pr_status.get("state") == "merged":
-            if branch_comparison["behind_main"] > 0:
-                return "cleanup"  # Merged PR, behind main - likely needs cleanup
-            else:
-                return "merged"
+        # Normalize PR state to lowercase for comparison (GitHub returns uppercase)
+        pr_state = pr_status.get("state", "").lower() if pr_status else ""
+
+        # Check if PR was merged - needs cleanup (squash merges leave branch "ahead")
+        if pr_state == "merged":
+            return "cleanup"
 
         if not local_status["is_clean"]:
             return "has_local_changes"
@@ -867,7 +873,7 @@ class WorktreeStatus:
             return "needs_pull"
         elif branch_comparison["ahead_main"] > 0:
             if pr_status:
-                if pr_status.get("state") == "open":
+                if pr_state == "open":
                     return "under_review"
                 else:
                     return "ready_for_pr"
