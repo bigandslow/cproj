@@ -833,11 +833,18 @@ class WorktreeStatus:
         # Get branch comparison
         branch_comparison = git.get_branch_comparison(self.worktree_path, branch, base_branch)
 
-        # Get PR status if available
+        # Get PR status if available (check stored URL first, then look up by branch)
         pr_status = None
         pr_url = self.agent_json.data["links"].get("pr")
         if pr_url and GitHubIntegration.is_available():
             pr_status = GitHubIntegration.get_pr_status_from_url(pr_url)
+        elif GitHubIntegration.is_available():
+            # No stored PR URL - look up by branch name
+            pr_status = GitHubIntegration.get_pr_status_by_branch(branch)
+
+        # Check for unsync'd .claude and .env changes
+        env_setup = EnvironmentSetup(self.worktree_path)
+        unsync_summary = env_setup.get_unsync_summary(repo_path)
 
         return {
             "worktree_path": str(self.worktree_path),
@@ -849,6 +856,7 @@ class WorktreeStatus:
             "branch_comparison": branch_comparison,
             "pr_status": pr_status,
             "links": self.agent_json.data["links"],
+            "unsync_summary": unsync_summary,
             "overall_status": self._determine_overall_status(
                 local_status, branch_comparison, pr_status
             ),
@@ -968,6 +976,21 @@ class WorktreeStatus:
             }
             lines.append(status_icons.get(overall, f"Status: {overall}"))
 
+            # Show unsync'd changes warning
+            unsync = status.get("unsync_summary", {})
+            if unsync.get("has_changes"):
+                lines.append("⚠️  Unsync'd changes:")
+                claude_changes = unsync.get("claude_changes", {})
+                if claude_changes.get("new"):
+                    lines.append(f"   📝 {len(claude_changes['new'])} new .claude file(s)")
+                if claude_changes.get("modified"):
+                    lines.append(
+                        f"   ✏️  {len(claude_changes['modified'])} modified .claude file(s)"
+                    )
+                env_files = unsync.get("env_files", [])
+                if env_files:
+                    lines.append(f"   🔐 {len(env_files)} modified .env file(s)")
+
             if detailed and status["links"]["linear"]:
                 lines.append(f"🔗 Linear: {status['links']['linear']}")
 
@@ -1028,6 +1051,16 @@ class WorktreeStatus:
             elif overall == "ready_for_pr":
                 if branch_comp["ahead_main"] > 0:
                     parts.append(f"({branch_comp['ahead_main']} commits ahead)")
+
+            # Add unsync warning indicator
+            unsync = status.get("unsync_summary", {})
+            if unsync.get("has_changes"):
+                unsync_count = (
+                    len(unsync.get("claude_changes", {}).get("new", []))
+                    + len(unsync.get("claude_changes", {}).get("modified", []))
+                    + len(unsync.get("env_files", []))
+                )
+                parts.append(f"⚠️ {unsync_count} unsync'd")
 
             return " ".join(parts)
 
@@ -1503,6 +1536,76 @@ export CPROJ_BASE_PORT={base_port}
 
         return different_files
 
+    def check_claude_differences(self, main_repo_path: Path) -> Dict[str, List[Path]]:
+        """Check for differences in .claude directory between worktree and main repo.
+
+        Returns dict with keys: 'new', 'modified', 'deleted' containing relative paths.
+        """
+        worktree_claude = self.worktree_path / ".claude"
+        main_claude = main_repo_path / ".claude"
+
+        differences: Dict[str, List[Path]] = {"new": [], "modified": [], "deleted": []}
+
+        if not worktree_claude.exists():
+            return differences
+
+        # Patterns to check in .claude directory
+        check_patterns = [
+            "commands/**/*.md",
+            "agents/**/*.md",
+            "skills/**/*.md",
+            "settings.json",
+            "settings.local.json",
+        ]
+
+        # Check worktree files against main repo
+        for pattern in check_patterns:
+            for wt_file in worktree_claude.glob(pattern):
+                if wt_file.is_file():
+                    rel_path = wt_file.relative_to(self.worktree_path)
+                    main_file = main_repo_path / rel_path
+
+                    if not main_file.exists():
+                        # New file in worktree
+                        differences["new"].append(rel_path)
+                    else:
+                        # Check if content differs
+                        try:
+                            wt_content = wt_file.read_text()
+                            main_content = main_file.read_text()
+                            if wt_content != main_content:
+                                differences["modified"].append(rel_path)
+                        except (IOError, UnicodeDecodeError):
+                            continue
+
+        # Check for files deleted in worktree (exist in main but not worktree)
+        if main_claude.exists():
+            for pattern in check_patterns:
+                for main_file in main_claude.glob(pattern):
+                    if main_file.is_file():
+                        rel_path = main_file.relative_to(main_repo_path)
+                        wt_file = self.worktree_path / rel_path
+                        if not wt_file.exists():
+                            differences["deleted"].append(rel_path)
+
+        return differences
+
+    def get_unsync_summary(self, main_repo_path: Path) -> Dict[str, Any]:
+        """Get summary of all unsync'd changes (.claude and .env files).
+
+        Returns dict with 'env_files', 'claude_changes', and 'has_changes' keys.
+        """
+        env_differences = self.check_env_differences(main_repo_path)
+        claude_differences = self.check_claude_differences(main_repo_path)
+
+        has_changes = bool(env_differences) or any(claude_differences.values())
+
+        return {
+            "env_files": env_differences,
+            "claude_changes": claude_differences,
+            "has_changes": has_changes,
+        }
+
     def sync_env_files(
         self,
         main_repo_path: Path,
@@ -1856,6 +1959,53 @@ class GitHubIntegration:
                 "merged_by": (
                     pr_data.get("mergedBy", {}).get("login") if pr_data.get("mergedBy") else None
                 ),
+                "url": pr_url,
+            }
+
+        except (subprocess.CalledProcessError, json.JSONDecodeError, Exception):
+            return None
+
+    @staticmethod
+    def get_pr_status_by_branch(branch: str) -> Optional[Dict[str, Any]]:
+        """Get PR status by branch name (finds most recent PR for this branch)"""
+        if not GitHubIntegration.is_available():
+            return None
+
+        try:
+            # Find PRs for this branch (includes merged/closed)
+            result = subprocess.run(
+                [
+                    "gh",
+                    "pr",
+                    "list",
+                    "--head",
+                    branch,
+                    "--state",
+                    "all",
+                    "--json",
+                    "number,state,title,url",
+                    "--limit",
+                    "1",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+
+            prs = json.loads(result.stdout)
+            if not prs:
+                return None
+
+            pr = prs[0]
+            pr_url = pr.get("url")
+
+            # Get full PR details using the URL
+            if pr_url:
+                return GitHubIntegration.get_pr_status_from_url(pr_url)
+
+            return {
+                "state": pr.get("state", "unknown").lower(),
+                "title": pr.get("title", "Unknown"),
                 "url": pr_url,
             }
 
@@ -2508,6 +2658,52 @@ class CprojCLI:
         import sys
 
         return sys.stdin.isatty() and sys.stdout.isatty()
+
+    def _check_unsync_changes(self, worktree_path: Path, repo_path: Path) -> Dict[str, Any]:
+        """Check for unsync'd .claude and .env changes in a worktree.
+
+        Returns dict with unsync summary and has_changes flag.
+        """
+        env_setup = EnvironmentSetup(worktree_path)
+        return env_setup.get_unsync_summary(repo_path)
+
+    def _display_unsync_warning(self, worktree_path: Path, unsync_summary: Dict[str, Any]) -> None:
+        """Display warning about unsync'd changes."""
+        if not unsync_summary.get("has_changes"):
+            return
+
+        print(f"\n⚠️  Worktree {worktree_path.name} has unsync'd changes:")
+
+        # Display .claude changes
+        claude_changes = unsync_summary.get("claude_changes", {})
+        if claude_changes.get("new"):
+            print("  📝 New .claude files (not in main repo):")
+            for f in claude_changes["new"]:
+                print(f"     + {f}")
+        if claude_changes.get("modified"):
+            print("  ✏️  Modified .claude files:")
+            for f in claude_changes["modified"]:
+                print(f"     ~ {f}")
+        if claude_changes.get("deleted"):
+            print("  🗑️  Deleted .claude files (exist in main repo):")
+            for f in claude_changes["deleted"]:
+                print(f"     - {f}")
+
+        # Display .env changes
+        env_files = unsync_summary.get("env_files", [])
+        if env_files:
+            print("  🔐 Modified .env files:")
+            for f in env_files:
+                print(f"     ~ {f}")
+
+    def _prompt_unsync_continue(self) -> bool:
+        """Prompt user if they want to continue despite unsync'd changes."""
+        if not self._is_interactive():
+            print("  ⚠️  Run 'cproj sync-env' to sync changes before cleanup")
+            return False
+
+        response = input("\n  Continue with removal anyway? [y/N]: ").strip().lower()
+        return response in ["y", "yes"]
 
     def _setup_claude_symlink(self, worktree_path: Path, repo_path: Path):
         """Setup CLAUDE.md/.cursorrules symlink in new worktree"""
@@ -4230,6 +4426,22 @@ echo "🔗 Installing MCP servers..."
                         for wt in selected_for_removal:
                             print(f"  - {Path(wt['path']).name} " f"[{wt.get('branch', 'N/A')}]")
 
+                        # Check for unsync'd changes in selected worktrees
+                        worktrees_with_unsync = []
+                        for wt in selected_for_removal:
+                            wt_path = Path(wt["path"])
+                            unsync = self._check_unsync_changes(wt_path, repo_path)
+                            if unsync.get("has_changes"):
+                                worktrees_with_unsync.append((wt, unsync))
+
+                        if worktrees_with_unsync:
+                            print(
+                                f"\n⚠️  {len(worktrees_with_unsync)} worktree(s) "
+                                "have unsync'd changes that will be lost:"
+                            )
+                            for wt, unsync in worktrees_with_unsync:
+                                self._display_unsync_warning(Path(wt["path"]), unsync)
+
                         confirm = input("\nConfirm removal? [y/N]: ").strip().lower()
                         if confirm in ["y", "yes"]:
                             for wt in selected_for_removal:
@@ -4419,25 +4631,25 @@ echo "🔗 Installing MCP servers..."
             should_remove = False
             logger.debug(f"Evaluating worktree: {path.name}")
 
+            # Define agent_json_path for all checks
+            agent_json_path = path / ".cproj" / ".agent.json"
+
             # Check age
-            if args.older_than:
-                agent_json_path = path / ".cproj" / ".agent.json"
-                if agent_json_path.exists():
-                    try:
-                        agent_json = AgentJson(path)
-                        created_at = datetime.fromisoformat(
-                            agent_json.data["workspace"]["created_at"].replace("Z", "+00:00")
-                        )
-                        age_days = (datetime.now(timezone.utc) - created_at).days
-                        if age_days > args.older_than:
-                            should_remove = True
-                    except Exception:
-                        pass
+            if args.older_than and agent_json_path.exists():
+                try:
+                    agent_json = AgentJson(path)
+                    created_at = datetime.fromisoformat(
+                        agent_json.data["workspace"]["created_at"].replace("Z", "+00:00")
+                    )
+                    age_days = (datetime.now(timezone.utc) - created_at).days
+                    if age_days > args.older_than:
+                        should_remove = True
+                except Exception:
+                    pass
 
             # Check for newer than (opposite logic)
             if hasattr(args, "newer_than") and args.newer_than:
                 logger.debug(f"Checking newer_than condition for {path.name}")
-                agent_json_path = path / ".cproj" / ".agent.json"
                 if agent_json_path.exists():
                     try:
                         agent_json = AgentJson(path)
@@ -4480,8 +4692,28 @@ echo "🔗 Installing MCP servers..."
             path = Path(wt["path"])
             print(f"Would remove: {path}")
 
+            # Check for unsync'd changes
+            unsync = self._check_unsync_changes(path, repo_path)
+            if unsync.get("has_changes"):
+                self._display_unsync_warning(path, unsync)
+
             if not args.dry_run:
-                if args.yes or input(f"Remove {path}? [y/N] ").lower() == "y":
+                should_remove = False
+                if args.yes:
+                    if unsync.get("has_changes"):
+                        print(
+                            "  ⚠️  Skipping due to unsync'd changes "
+                            "(use interactive mode to override)"
+                        )
+                        continue
+                    should_remove = True
+                else:
+                    prompt = f"Remove {path}? [y/N] "
+                    if unsync.get("has_changes"):
+                        prompt = f"Remove {path} (has unsync'd changes)? [y/N] "
+                    should_remove = input(prompt).lower() == "y"
+
+                if should_remove:
                     try:
                         branch_name = git.remove_worktree_and_branch(path, force=args.force)
 
