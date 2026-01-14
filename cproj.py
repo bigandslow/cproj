@@ -267,6 +267,7 @@ class ProjectConfig:
             "mcp_servers_enabled_by_default": config.get("mcp_servers_enabled_by_default", True),
             "port_config": config.get("port_config", {}),
             "base_branch": config.get("base_branch", "main"),
+            "env_diff_ignore_vars": config.get("env_diff_ignore_vars", []),
         }
 
     def _get_default_config(self) -> Dict[str, Any]:
@@ -354,6 +355,13 @@ class ProjectConfig:
         if "mcp_servers" not in self._config:
             self._config["mcp_servers"] = []
         self._config["mcp_servers"].append(server)
+
+    def get_env_diff_ignore_vars(self) -> List[str]:
+        """Get list of env variable names to ignore when comparing .env files.
+
+        This is useful for ignoring port numbers that differ between worktrees.
+        """
+        return self._config.get("env_diff_ignore_vars", [])
 
     def are_mcps_enabled_by_default(self) -> bool:
         """Check if MCP servers should be enabled by default"""
@@ -844,7 +852,8 @@ class WorktreeStatus:
 
         # Check for unsync'd .claude and .env changes
         env_setup = EnvironmentSetup(self.worktree_path)
-        unsync_summary = env_setup.get_unsync_summary(repo_path)
+        ignore_env_vars = project_config.get_env_diff_ignore_vars()
+        unsync_summary = env_setup.get_unsync_summary(repo_path, ignore_env_vars)
 
         return {
             "worktree_path": str(self.worktree_path),
@@ -1488,8 +1497,50 @@ export CPROJ_BASE_PORT={base_port}
                 except OSError as e:
                     print(f"Warning: Failed to copy {rel_path}: {e}")
 
-    def check_env_differences(self, main_repo_path: Path) -> List[Path]:
-        """Check for differences in .env files between worktree and main repo"""
+    def _parse_env_file(self, file_path: Path) -> Dict[str, str]:
+        """Parse a .env file into a dict of key=value pairs."""
+        env_vars = {}
+        try:
+            with open(file_path, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    # Skip empty lines and comments
+                    if not line or line.startswith("#"):
+                        continue
+                    # Parse KEY=value
+                    if "=" in line:
+                        key, _, value = line.partition("=")
+                        env_vars[key.strip()] = value.strip()
+        except (IOError, UnicodeDecodeError):
+            pass
+        return env_vars
+
+    def _env_files_differ(
+        self, file1: Path, file2: Path, ignore_vars: List[str]
+    ) -> bool:
+        """Compare two .env files, ignoring specified variables."""
+        env1 = self._parse_env_file(file1)
+        env2 = self._parse_env_file(file2)
+
+        # Remove ignored variables from both
+        for var in ignore_vars:
+            env1.pop(var, None)
+            env2.pop(var, None)
+
+        return env1 != env2
+
+    def check_env_differences(
+        self, main_repo_path: Path, ignore_vars: Optional[List[str]] = None
+    ) -> List[Path]:
+        """Check for differences in .env files between worktree and main repo.
+
+        Args:
+            main_repo_path: Path to the main repository
+            ignore_vars: List of variable names to ignore when comparing
+        """
+        if ignore_vars is None:
+            ignore_vars = []
+
         # Find all .env* files in the current worktree
         env_patterns = ["**/.env", "**/.env.*"]
         found_files: List[Path] = []
@@ -1522,12 +1573,15 @@ export CPROJ_BASE_PORT={base_port}
             # Check if files differ
             if dest_file.exists():
                 try:
-                    with open(source_file, "r") as sf, open(dest_file, "r") as df:
-                        source_content = sf.read()
-                        dest_content = df.read()
-
-                    if source_content != dest_content:
-                        different_files.append(rel_path)
+                    if ignore_vars:
+                        # Use smart comparison that ignores specified vars
+                        if self._env_files_differ(source_file, dest_file, ignore_vars):
+                            different_files.append(rel_path)
+                    else:
+                        # Simple content comparison
+                        with open(source_file, "r") as sf, open(dest_file, "r") as df:
+                            if sf.read() != df.read():
+                                different_files.append(rel_path)
                 except (IOError, UnicodeDecodeError):
                     continue
             else:
@@ -1590,12 +1644,18 @@ export CPROJ_BASE_PORT={base_port}
 
         return differences
 
-    def get_unsync_summary(self, main_repo_path: Path) -> Dict[str, Any]:
+    def get_unsync_summary(
+        self, main_repo_path: Path, ignore_env_vars: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
         """Get summary of all unsync'd changes (.claude and .env files).
+
+        Args:
+            main_repo_path: Path to the main repository
+            ignore_env_vars: List of env variable names to ignore when comparing
 
         Returns dict with 'env_files', 'claude_changes', and 'has_changes' keys.
         """
-        env_differences = self.check_env_differences(main_repo_path)
+        env_differences = self.check_env_differences(main_repo_path, ignore_env_vars)
         claude_differences = self.check_claude_differences(main_repo_path)
 
         has_changes = bool(env_differences) or any(claude_differences.values())
@@ -2665,7 +2725,9 @@ class CprojCLI:
         Returns dict with unsync summary and has_changes flag.
         """
         env_setup = EnvironmentSetup(worktree_path)
-        return env_setup.get_unsync_summary(repo_path)
+        project_config = ProjectConfig(repo_path)
+        ignore_env_vars = project_config.get_env_diff_ignore_vars()
+        return env_setup.get_unsync_summary(repo_path, ignore_env_vars)
 
     def _display_unsync_warning(self, worktree_path: Path, unsync_summary: Dict[str, Any]) -> None:
         """Display warning about unsync'd changes."""
