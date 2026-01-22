@@ -2327,7 +2327,7 @@ class CprojCLI:
         init_project_parser.add_argument(
             "--template",
             help="Configuration template",
-            choices=["cproj", "web-app", "trivalley", "minimal"],
+            choices=["cproj", "web-app", "minimal"],
         )
 
         # worktree create command
@@ -3359,8 +3359,7 @@ echo "🔗 Installing MCP servers..."
         # Apply template or prompt for features
         if args.template == "cproj":
             self._apply_cproj_template(project_config)
-        elif args.template in ["web-app", "trivalley"]:
-            # trivalley is an alias for web-app (backward compatibility)
+        elif args.template == "web-app":
             self._apply_web_app_template(project_config, repo_path)
         elif args.template == "minimal":
             self._apply_minimal_template(project_config)
@@ -3395,7 +3394,7 @@ echo "🔗 Installing MCP servers..."
         config.enable_feature("env_sync_check", True)
 
     def _apply_web_app_template(self, config: ProjectConfig, repo_path: Path):
-        """Apply web-app project template (formerly trivalley)"""
+        """Apply web-app project template"""
         config.enable_feature("claude_workspace", True)
         config.enable_feature("claude_symlink", False)
         config.enable_feature("review_agents", True)
@@ -3558,13 +3557,24 @@ echo "🔗 Installing MCP servers..."
             logger.warning(f"Failed to copy directory: {e}")
 
     def _execute_run_command(self, action: Dict[str, Any], worktree_path: Path, repo_path: Path):
-        """Execute shell command action"""
+        """Execute shell command action.
+
+        Supports placeholder substitution:
+          {worktree_path} - absolute path to the worktree
+          {repo_path} - absolute path to the main repository
+          {worktree_name} - name of the worktree directory
+        """
         command = action.get("command")
         description = action.get("description", "Running custom command")
 
         if not command:
             logger.warning("run_command action missing command")
             return
+
+        # Substitute placeholders
+        command = command.replace("{worktree_path}", str(worktree_path))
+        command = command.replace("{repo_path}", str(repo_path))
+        command = command.replace("{worktree_name}", worktree_path.name)
 
         print(f"🔧 {description}")
 
