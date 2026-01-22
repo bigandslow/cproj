@@ -3469,7 +3469,7 @@ echo "🔗 Installing MCP servers..."
             config.enable_feature(feature, enabled)
 
     def _execute_custom_actions(
-        self, project_config: ProjectConfig, worktree_path: Path, repo_path: Path
+        self, project_config: ProjectConfig, worktree_path: Path, repo_path: Path, branch: str = ""
     ):
         """Execute custom actions defined in project configuration"""
         actions = project_config.get_custom_actions()
@@ -3482,7 +3482,7 @@ echo "🔗 Installing MCP servers..."
             elif action_type == "copy_directory":
                 self._execute_copy_directory(action, worktree_path, repo_path)
             elif action_type == "run_command":
-                self._execute_run_command(action, worktree_path, repo_path)
+                self._execute_run_command(action, worktree_path, repo_path, branch)
             elif action_type == "copy_env_files":
                 self._execute_copy_env_files(action, worktree_path, repo_path)
             elif action_type == "allocate_port":
@@ -3556,13 +3556,14 @@ echo "🔗 Installing MCP servers..."
         except OSError as e:
             logger.warning(f"Failed to copy directory: {e}")
 
-    def _execute_run_command(self, action: Dict[str, Any], worktree_path: Path, repo_path: Path):
+    def _execute_run_command(self, action: Dict[str, Any], worktree_path: Path, repo_path: Path, branch: str = ""):
         """Execute shell command action.
 
         Supports placeholder substitution:
           {worktree_path} - absolute path to the worktree
           {repo_path} - absolute path to the main repository
           {worktree_name} - name of the worktree directory
+          {branch} - full branch name (e.g., feature/foo)
         """
         command = action.get("command")
         description = action.get("description", "Running custom command")
@@ -3575,6 +3576,7 @@ echo "🔗 Installing MCP servers..."
         command = command.replace("{worktree_path}", str(worktree_path))
         command = command.replace("{repo_path}", str(repo_path))
         command = command.replace("{worktree_name}", worktree_path.name)
+        command = command.replace("{branch}", branch)
 
         print(f"🔧 {description}")
 
@@ -3842,7 +3844,7 @@ echo "🔗 Installing MCP servers..."
         # Custom actions are executed in the order specified in project.yaml
         # This allows projects to control when .env files are copied, when ports
         # are allocated, and when project-specific scripts (like update-env-ports.sh) run
-        self._execute_custom_actions(project_config, worktree_path, repo_path)
+        self._execute_custom_actions(project_config, worktree_path, repo_path, args.branch)
 
         print(f"Created worktree: {worktree_path}")
         print(f"Branch: {args.branch}")
@@ -4121,10 +4123,10 @@ echo "🔗 Installing MCP servers..."
 
     def cmd_list(self, args):
         """List worktrees"""
-        repo_path = Path(self.config.get("repo_path", "."))
+        repo_path = self._find_git_root(Path.cwd())
 
-        if not repo_path.exists():
-            print("No configured repository")
+        if not repo_path:
+            print("Not in a git repository")
             return
 
         git = GitWorktree(repo_path)
