@@ -293,9 +293,9 @@ class ProjectConfig:
         with open(self.config_path, "w") as f:
             yaml.dump(self._config, f, default_flow_style=False, sort_keys=False)
 
-    def is_feature_enabled(self, feature: str) -> bool:
+    def is_feature_enabled(self, feature: str, default: bool = False) -> bool:
         """Check if a feature is enabled"""
-        return self._config.get("features", {}).get(feature, False)
+        return self._config.get("features", {}).get(feature, default)
 
     def get_project_name(self) -> str:
         """Get project name"""
@@ -3849,9 +3849,10 @@ echo "🔗 Installing MCP servers..."
         print(f"Created worktree: {worktree_path}")
         print(f"Branch: {args.branch}")
 
-        # Open terminal by default (unless --no-terminal is specified)
+        # Open terminal by default (unless --no-terminal is specified or auto_terminal is disabled)
+        auto_terminal = project_config.is_feature_enabled("auto_terminal", default=True)
         terminal_app = args.terminal or self.config.get("terminal", "Terminal")
-        if not args.no_terminal and terminal_app != "none":
+        if not args.no_terminal and terminal_app != "none" and auto_terminal:
             # Strip branch prefix (everything before /) for cleaner
             # window title
             import re
