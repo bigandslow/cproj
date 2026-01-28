@@ -3556,7 +3556,9 @@ echo "🔗 Installing MCP servers..."
         except OSError as e:
             logger.warning(f"Failed to copy directory: {e}")
 
-    def _execute_run_command(self, action: Dict[str, Any], worktree_path: Path, repo_path: Path, branch: str = ""):
+    def _execute_run_command(
+        self, action: Dict[str, Any], worktree_path: Path, repo_path: Path, branch: str = ""
+    ):
         """Execute shell command action.
 
         Supports placeholder substitution:
