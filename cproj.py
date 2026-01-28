@@ -1672,8 +1672,13 @@ export CPROJ_BASE_PORT={base_port}
         specific_file: Optional[str] = None,
         dry_run: bool = False,
         backup: bool = False,
+        keys: Optional[List[str]] = None,
     ):
-        """Sync .env files from current worktree back to main repo"""
+        """Sync .env files from current worktree back to main repo.
+
+        If keys is None, syncs entire files.
+        If keys is specified, only those keys are updated in the main repo files.
+        """
         from datetime import datetime
         import difflib
 
@@ -1698,6 +1703,7 @@ export CPROJ_BASE_PORT={base_port}
         synced_count = 0
         for source_file in found_files:
             # Skip hidden directories and common build/cache dirs
+            rel_parts = source_file.relative_to(self.worktree_path).parts[:-1]
             if any(
                 part.startswith(".")
                 and part
@@ -1709,7 +1715,14 @@ export CPROJ_BASE_PORT={base_port}
                     ".env.production",
                     ".env.example",
                 ]
-                for part in source_file.relative_to(self.worktree_path).parts[:-1]
+                for part in rel_parts
+            ):
+                continue
+
+            # Skip node_modules, venv, etc.
+            if any(
+                part in ["node_modules", ".venv", "venv", "__pycache__", ".git"]
+                for part in rel_parts
             ):
                 continue
 
@@ -1721,7 +1734,57 @@ export CPROJ_BASE_PORT={base_port}
             if source_file.samefile(dest_file) if dest_file.exists() else False:
                 continue
 
-            # Show diff if files differ
+            # Handle selective key sync
+            if keys is not None:
+                source_env = self._parse_env_file(source_file)
+                keys_found = [k for k in keys if k in source_env]
+                if not keys_found:
+                    continue
+
+                if not dest_file.exists():
+                    print(f"⏭️  Skipping {rel_path} (not in main repo)")
+                    continue
+
+                if dry_run:
+                    for key in keys_found:
+                        print(f"[DRY RUN] Would sync {key} from {rel_path}")
+                    synced_count += len(keys_found)
+                    continue
+
+                try:
+                    if backup:
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        backup_file = dest_file.with_suffix(
+                            f"{dest_file.suffix}.backup_{timestamp}"
+                        )
+                        shutil.copy2(dest_file, backup_file)
+                        print(f"📁 Backup: {backup_file.name}")
+
+                    dest_env = self._parse_env_file(dest_file)
+                    updated_keys = []
+
+                    for key in keys_found:
+                        old_value = dest_env.get(key)
+                        new_value = source_env[key]
+                        if old_value != new_value:
+                            dest_env[key] = new_value
+                            updated_keys.append(key)
+
+                    if updated_keys:
+                        self._write_env_file_with_updates(
+                            dest_file, source_env, updated_keys
+                        )
+                        for key in updated_keys:
+                            print(f"✅ Synced {key} from {rel_path}")
+                        synced_count += len(updated_keys)
+                    else:
+                        print(f"⏭️  No changes for specified keys in {rel_path}")
+
+                except OSError as e:
+                    print(f"❌ Failed to sync {rel_path}: {e}")
+                continue
+
+            # Full file sync (original behavior)
             if dest_file.exists():
                 try:
                     with open(source_file, "r") as sf, open(dest_file, "r") as df:
@@ -1763,7 +1826,9 @@ export CPROJ_BASE_PORT={base_port}
                 # Create backup if requested
                 if backup and dest_file.exists():
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    backup_file = dest_file.with_suffix(f"{dest_file.suffix}.backup_{timestamp}")
+                    backup_file = dest_file.with_suffix(
+                        f"{dest_file.suffix}.backup_{timestamp}"
+                    )
                     shutil.copy2(dest_file, backup_file)
                     print(f"📁 Backup created: {backup_file.name}")
 
@@ -1777,9 +1842,181 @@ export CPROJ_BASE_PORT={base_port}
                 print(f"❌ Failed to sync {rel_path}: {e}")
 
         if not dry_run:
-            print(f"\n🎉 Synced {synced_count} file(s) to main repo")
+            print(f"\n🎉 Synced {synced_count} item(s) to main repo")
         else:
-            print(f"\n[DRY RUN] Would sync {synced_count} file(s)")
+            print(f"\n[DRY RUN] Would sync {synced_count} item(s)")
+
+    def push_env_keys(
+        self,
+        main_repo_path: Path,
+        keys: Optional[List[str]] = None,
+        specific_file: Optional[str] = None,
+        dry_run: bool = False,
+        backup: bool = False,
+    ):
+        """Push specific env keys from main repo to this worktree.
+
+        If keys is None, pushes all keys (full file sync).
+        If keys is specified, only those keys are updated in the worktree files.
+        """
+        from datetime import datetime
+
+        # Find all .env* files in the main repo
+        env_patterns = ["**/.env", "**/.env.*"]
+        found_files: List[Path] = []
+
+        for pattern in env_patterns:
+            found_files.extend(main_repo_path.glob(pattern))
+
+        if not found_files:
+            print("  No .env files found in main repo")
+            return
+
+        # Filter to specific file if requested
+        if specific_file:
+            found_files = [f for f in found_files if f.name == specific_file]
+            if not found_files:
+                print(f"  File {specific_file} not found in main repo")
+                return
+
+        updated_count = 0
+        for source_file in found_files:
+            # Skip hidden directories and common build/cache dirs
+            rel_parts = source_file.relative_to(main_repo_path).parts[:-1]
+            if any(
+                part.startswith(".") and part not in [".env"]
+                for part in rel_parts
+            ):
+                continue
+
+            # Skip node_modules, venv, etc.
+            if any(
+                part in ["node_modules", ".venv", "venv", "__pycache__", ".git"]
+                for part in rel_parts
+            ):
+                continue
+
+            # Calculate relative path and destination
+            rel_path = source_file.relative_to(main_repo_path)
+            dest_file = self.worktree_path / rel_path
+
+            # If no specific keys, do full file copy
+            if keys is None:
+                if dry_run:
+                    print(f"  [DRY RUN] Would copy {rel_path}")
+                    updated_count += 1
+                    continue
+
+                try:
+                    if backup and dest_file.exists():
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        backup_path = dest_file.with_suffix(
+                            f"{dest_file.suffix}.backup_{timestamp}"
+                        )
+                        shutil.copy2(dest_file, backup_path)
+                        print(f"  📁 Backup: {backup_path.name}")
+
+                    dest_file.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(source_file, dest_file)
+                    print(f"  ✅ Copied {rel_path}")
+                    updated_count += 1
+                except OSError as e:
+                    print(f"  ❌ Failed to copy {rel_path}: {e}")
+                continue
+
+            # Selective key sync
+            source_env = self._parse_env_file(source_file)
+            if not dest_file.exists():
+                print(f"  ⏭️  Skipping {rel_path} (not in worktree)")
+                continue
+
+            # Find which keys to update
+            keys_found = [k for k in keys if k in source_env]
+            if not keys_found:
+                continue
+
+            if dry_run:
+                for key in keys_found:
+                    print(f"  [DRY RUN] Would update {key} in {rel_path}")
+                updated_count += len(keys_found)
+                continue
+
+            try:
+                # Create backup if requested
+                if backup:
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    backup_path = dest_file.with_suffix(
+                        f"{dest_file.suffix}.backup_{timestamp}"
+                    )
+                    shutil.copy2(dest_file, backup_path)
+                    print(f"  📁 Backup: {backup_path.name}")
+
+                # Read destination file and update specific keys
+                dest_env = self._parse_env_file(dest_file)
+                updated_keys = []
+
+                for key in keys_found:
+                    old_value = dest_env.get(key)
+                    new_value = source_env[key]
+                    if old_value != new_value:
+                        dest_env[key] = new_value
+                        updated_keys.append(key)
+
+                if updated_keys:
+                    # Write updated file preserving order and comments
+                    self._write_env_file_with_updates(
+                        dest_file, source_env, updated_keys
+                    )
+                    for key in updated_keys:
+                        print(f"  ✅ Updated {key} in {rel_path}")
+                    updated_count += len(updated_keys)
+                else:
+                    print(f"  ⏭️  No changes needed in {rel_path}")
+
+            except OSError as e:
+                print(f"  ❌ Failed to update {rel_path}: {e}")
+
+        if updated_count > 0:
+            action = "Would update" if dry_run else "Updated"
+            print(f"  {action} {updated_count} key(s)")
+
+    def _write_env_file_with_updates(
+        self, file_path: Path, new_values: Dict[str, str], keys_to_update: List[str]
+    ):
+        """Update specific keys in an env file while preserving structure."""
+        lines = []
+        updated_keys = set()
+
+        try:
+            with open(file_path, "r") as f:
+                for line in f:
+                    stripped = line.strip()
+                    if not stripped or stripped.startswith("#"):
+                        lines.append(line)
+                        continue
+
+                    if "=" in stripped:
+                        key, _, _ = stripped.partition("=")
+                        key = key.strip()
+                        if key in keys_to_update and key in new_values:
+                            # Replace with new value
+                            lines.append(f"{key}={new_values[key]}\n")
+                            updated_keys.add(key)
+                        else:
+                            lines.append(line)
+                    else:
+                        lines.append(line)
+
+            # Add any keys that weren't in the file
+            for key in keys_to_update:
+                if key not in updated_keys and key in new_values:
+                    lines.append(f"{key}={new_values[key]}\n")
+
+            with open(file_path, "w") as f:
+                f.writelines(lines)
+
+        except (IOError, UnicodeDecodeError) as e:
+            raise OSError(f"Failed to update {file_path}: {e}")
 
 
 class TerminalAutomation:
@@ -2473,7 +2710,7 @@ class CprojCLI:
 
         # sync-env command
         sync_env_parser = subparsers.add_parser(
-            "sync-env", help="Sync .env files from worktree to main repo"
+            "sync-env", help="Sync .env files between worktree and main repo"
         )
         sync_env_parser.add_argument(
             "--file",
@@ -2488,6 +2725,20 @@ class CprojCLI:
             "--backup",
             action="store_true",
             help="Create backup of existing files before overwriting",
+        )
+        sync_env_parser.add_argument(
+            "--push",
+            action="store_true",
+            help="Push from main repo to worktree(s) instead of pulling",
+        )
+        sync_env_parser.add_argument(
+            "--keys",
+            help="Comma-separated list of specific keys to sync (e.g., API_KEY,SECRET)",
+        )
+        sync_env_parser.add_argument(
+            "--all-worktrees",
+            action="store_true",
+            help="Push to all worktrees (requires --push)",
         )
 
         # config command
@@ -5087,11 +5338,27 @@ echo "🔗 Installing MCP servers..."
             subprocess.run(["open", links["pr"]], check=False)
 
     def cmd_sync_env(self, args):
-        """Sync .env files from worktree to main repo"""
-        # Validate we're in a worktree
+        """Sync .env files between worktree and main repo"""
+        # Parse keys if provided
+        keys_to_sync = None
+        if args.keys:
+            keys_to_sync = [k.strip() for k in args.keys.split(",")]
+
+        # Validate --all-worktrees requires --push
+        if args.all_worktrees and not args.push:
+            raise CprojError("--all-worktrees requires --push flag")
+
+        # Handle --push --all-worktrees mode
+        if args.push and args.all_worktrees:
+            self._push_env_to_all_worktrees(args, keys_to_sync)
+            return
+
+        # For single worktree operations, we need to be in a worktree or main repo
         current_path = Path.cwd()
         agent_json_path = current_path / ".cproj" / ".agent.json"
+        main_repo_path = None
 
+        # Check if we're in a worktree
         if not agent_json_path.exists():
             # Check if we're in a subdirectory of a worktree
             parent = current_path.parent
@@ -5101,34 +5368,101 @@ echo "🔗 Installing MCP servers..."
                     agent_json_path = parent / ".cproj" / ".agent.json"
                     break
                 parent = parent.parent
+
+        # If we found a worktree, load the main repo path from it
+        if agent_json_path.exists():
+            try:
+                with open(agent_json_path, "r") as f:
+                    agent_data = json.load(f)
+                main_repo_path = Path(agent_data["project"]["repo_path"])
+            except (json.JSONDecodeError, IOError) as e:
+                raise CprojError(f"Failed to read .agent.json: {e}")
+        else:
+            # Not in a worktree - check if we're in main repo (for --push)
+            if args.push:
+                main_repo_path = self._find_git_root(Path.cwd())
+                if not main_repo_path:
+                    raise CprojError("Not in a git repository")
+                raise CprojError(
+                    "When using --push from main repo, use --all-worktrees to push to all worktrees"
+                )
             else:
                 raise CprojError(
                     "Not in a cproj worktree. Run this command from a worktree directory."
                 )
 
-        # Load agent.json to get main repo path
-        try:
-            with open(agent_json_path, "r") as f:
-                agent_data = json.load(f)
-        except (json.JSONDecodeError, IOError) as e:
-            raise CprojError(f"Failed to read .agent.json: {e}")
-
-        main_repo_path = Path(agent_data["project"]["repo_path"])
-        if not main_repo_path.exists():
+        if not main_repo_path or not main_repo_path.exists():
             raise CprojError(f"Main repo path not found: {main_repo_path}")
 
-        # Set up environment and sync
         env_setup = EnvironmentSetup(current_path)
-        env_setup.sync_env_files(
-            main_repo_path=main_repo_path,
-            specific_file=args.file,
-            dry_run=args.dry_run,
-            backup=args.backup,
-        )
+
+        if args.push:
+            # Push from main to this worktree
+            env_setup.push_env_keys(
+                main_repo_path=main_repo_path,
+                keys=keys_to_sync,
+                specific_file=args.file,
+                dry_run=args.dry_run,
+                backup=args.backup,
+            )
+        else:
+            # Pull from worktree to main (original behavior)
+            env_setup.sync_env_files(
+                main_repo_path=main_repo_path,
+                specific_file=args.file,
+                dry_run=args.dry_run,
+                backup=args.backup,
+                keys=keys_to_sync,
+            )
 
         # Run post-sync scripts if configured (e.g., update-env-ports.sh)
         if not args.dry_run:
             self._run_post_sync_hooks(current_path, main_repo_path)
+
+    def _push_env_to_all_worktrees(self, args, keys_to_sync: Optional[List[str]]):
+        """Push env keys from main repo to all worktrees"""
+        # Find the main repo
+        main_repo_path = self._find_git_root(Path.cwd())
+        if not main_repo_path:
+            raise CprojError("Not in a git repository")
+
+        # Get all worktrees
+        git = GitWorktree(main_repo_path)
+        worktrees = git.list_worktrees()
+
+        # Filter to only cproj-managed worktrees (have .agent.json)
+        managed_worktrees = []
+        for wt in worktrees:
+            wt_path = Path(wt["path"])
+            if wt_path == main_repo_path:
+                continue  # Skip main repo
+            if (wt_path / ".cproj" / ".agent.json").exists():
+                managed_worktrees.append(wt_path)
+
+        if not managed_worktrees:
+            print("No managed worktrees found")
+            return
+
+        print(f"Found {len(managed_worktrees)} worktree(s) to update")
+        if keys_to_sync:
+            print(f"Keys to sync: {', '.join(keys_to_sync)}")
+        print()
+
+        for wt_path in managed_worktrees:
+            print(f"📁 {wt_path.name}")
+            env_setup = EnvironmentSetup(wt_path)
+            env_setup.push_env_keys(
+                main_repo_path=main_repo_path,
+                keys=keys_to_sync,
+                specific_file=args.file,
+                dry_run=args.dry_run,
+                backup=args.backup,
+            )
+
+            # Run post-sync hooks for each worktree
+            if not args.dry_run:
+                self._run_post_sync_hooks(wt_path, main_repo_path)
+            print()
 
     def _run_post_sync_hooks(self, worktree_path: Path, repo_path: Path):
         """Run project-specific post-sync hooks"""

@@ -34,7 +34,7 @@ cproj cleanup
 | `cproj review open` | Create PR |
 | `cproj merge` | Merge and cleanup |
 | `cproj cleanup` | Remove stale workspaces |
-| `cproj sync-env` | Sync .env files from main repo |
+| `cproj sync-env` | Sync .env files between worktree and main |
 
 ## Project Configuration
 
@@ -162,6 +162,35 @@ Status indicators:
 - `CREATE PR` - Ready for PR creation
 - `REVIEW` - PR under review
 - `CLEANUP` - PR merged, safe to remove
+
+## Syncing Environment Files
+
+Sync .env files between worktrees and main repo:
+
+```bash
+# Pull all .env changes from worktree to main
+cproj sync-env
+
+# Pull only specific keys
+cproj sync-env --keys API_KEY,SECRET_TOKEN
+
+# Push from main to current worktree
+cproj sync-env --push
+
+# Push specific keys to ALL worktrees (e.g., rotate secrets)
+cproj sync-env --push --keys API_KEY,SECRET_TOKEN --all-worktrees
+
+# Preview changes first
+cproj sync-env --push --keys API_KEY --all-worktrees --dry-run
+```
+
+Options:
+- `--push` - Push from main to worktree (default: pull from worktree to main)
+- `--keys KEY1,KEY2` - Sync only specific variables
+- `--all-worktrees` - Push to all managed worktrees (requires --push)
+- `--file .env.local` - Sync only a specific file
+- `--backup` - Create backup before overwriting
+- `--dry-run` - Preview changes without applying
 
 ## Installation
 
