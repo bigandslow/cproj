@@ -1689,6 +1689,9 @@ export CPROJ_BASE_PORT={base_port}
         for pattern in env_patterns:
             found_files.extend(self.worktree_path.glob(pattern))
 
+        # Skip .example files (these contain placeholder values)
+        found_files = [f for f in found_files if not f.name.endswith(".example")]
+
         if not found_files:
             print("No .env files found in current worktree")
             return
@@ -1868,6 +1871,9 @@ export CPROJ_BASE_PORT={base_port}
         for pattern in env_patterns:
             found_files.extend(main_repo_path.glob(pattern))
 
+        # Skip .example files (these contain placeholder values)
+        found_files = [f for f in found_files if not f.name.endswith(".example")]
+
         if not found_files:
             print("  No .env files found in main repo")
             return
@@ -1998,6 +2004,9 @@ export CPROJ_BASE_PORT={base_port}
 
         for pattern in env_patterns:
             found_files.extend(repo_path.glob(pattern))
+
+        # Skip .example files (these contain placeholder values)
+        found_files = [f for f in found_files if not f.name.endswith(".example")]
 
         # Skip irrelevant directories
         skip_dirs = {"node_modules", ".venv", "venv", "__pycache__", ".git"}
