@@ -1980,6 +1980,93 @@ export CPROJ_BASE_PORT={base_port}
             action = "Would update" if dry_run else "Updated"
             print(f"  {action} {updated_count} key(s)")
 
+    def propagate_keys_in_repo(
+        self,
+        repo_path: Path,
+        keys: List[str],
+        dry_run: bool = False,
+    ) -> Dict[str, str]:
+        """Propagate key values across all .env files in a repo.
+
+        For each key, finds the most recently modified .env file containing it
+        and updates all other .env files to match that value.
+
+        Returns the canonical values dict.
+        """
+        env_patterns = ["**/.env", "**/.env.*"]
+        found_files: List[Path] = []
+
+        for pattern in env_patterns:
+            found_files.extend(repo_path.glob(pattern))
+
+        # Skip irrelevant directories
+        skip_dirs = {"node_modules", ".venv", "venv", "__pycache__", ".git"}
+        filtered_files = []
+        for f in found_files:
+            rel_parts = f.relative_to(repo_path).parts[:-1]
+            if any(part in skip_dirs for part in rel_parts):
+                continue
+            if any(
+                part.startswith(".") and part not in [".env"]
+                for part in rel_parts
+            ):
+                continue
+            filtered_files.append(f)
+
+        # For each key, find canonical value from most recently modified file
+        canonical: Dict[str, str] = {}
+        canonical_source: Dict[str, Path] = {}
+
+        for key in keys:
+            best_mtime = 0.0
+            for f in filtered_files:
+                env_vars = self._parse_env_file(f)
+                if key in env_vars:
+                    mtime = f.stat().st_mtime
+                    if mtime > best_mtime:
+                        best_mtime = mtime
+                        canonical[key] = env_vars[key]
+                        canonical_source[key] = f
+
+        if not canonical:
+            return {}
+
+        # Show canonical sources
+        for key, source in canonical_source.items():
+            rel = source.relative_to(repo_path)
+            print(f"  📌 {key}: using value from {rel}")
+
+        # Propagate to all other files in the repo
+        propagated = 0
+        for f in filtered_files:
+            env_vars = self._parse_env_file(f)
+            keys_to_update = []
+
+            for key, value in canonical.items():
+                if key in env_vars and env_vars[key] != value:
+                    keys_to_update.append(key)
+
+            if not keys_to_update:
+                continue
+
+            rel = f.relative_to(repo_path)
+            if dry_run:
+                for key in keys_to_update:
+                    print(f"  [DRY RUN] Would propagate {key} in {rel}")
+                propagated += len(keys_to_update)
+            else:
+                self._write_env_file_with_updates(f, canonical, keys_to_update)
+                for key in keys_to_update:
+                    print(f"  ✅ Propagated {key} in {rel}")
+                propagated += len(keys_to_update)
+
+        if propagated > 0:
+            print(f"  Propagated {propagated} key(s) within repo")
+        else:
+            print("  All repo files already consistent")
+
+        return canonical
+
     def _write_env_file_with_updates(
         self, file_path: Path, new_values: Dict[str, str], keys_to_update: List[str]
     ):
@@ -5397,6 +5484,15 @@ echo "🔗 Installing MCP servers..."
         env_setup = EnvironmentSetup(current_path)
 
         if args.push:
+            # Propagate keys within main repo first
+            if keys_to_sync:
+                print("🔄 Propagating keys within main repo...")
+                main_env = EnvironmentSetup(main_repo_path)
+                main_env.propagate_keys_in_repo(
+                    main_repo_path, keys_to_sync, dry_run=args.dry_run
+                )
+                print()
+
             # Push from main to this worktree
             env_setup.push_env_keys(
                 main_repo_path=main_repo_path,
@@ -5446,6 +5542,15 @@ echo "🔗 Installing MCP servers..."
         print(f"Found {len(managed_worktrees)} worktree(s) to update")
         if keys_to_sync:
             print(f"Keys to sync: {', '.join(keys_to_sync)}")
+
+        # Propagate keys within main repo first
+        if keys_to_sync:
+            print("\n🔄 Propagating keys within main repo...")
+            env_setup = EnvironmentSetup(main_repo_path)
+            env_setup.propagate_keys_in_repo(
+                main_repo_path, keys_to_sync, dry_run=args.dry_run
+            )
+
         print()
 
         for wt_path in managed_worktrees:
