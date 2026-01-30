@@ -2630,7 +2630,7 @@ class CprojCLI:
             help="Terminal app",
         )
         parser.add_argument("--editor", help="Editor command")
-        parser.add_argument("--yes", action="store_true", help="Skip confirmations")
+        parser.add_argument("-y", "--yes", action="store_true", help="Skip confirmations")
         parser.add_argument("--verbose", action="store_true", help="Verbose output")
         parser.add_argument("--json", action="store_true", help="JSON output")
         parser.add_argument(
@@ -2668,7 +2668,8 @@ class CprojCLI:
         wt_sub = wt_create.add_subparsers(dest="worktree_command")
 
         create_parser = wt_sub.add_parser("create", help="Create worktree")
-        create_parser.add_argument("--branch", help="Branch name")
+        create_parser.add_argument("-b", "--branch", help="Branch name")
+        create_parser.add_argument("-y", "--yes", action="store_true", help="Skip confirmations")
         create_parser.add_argument("--linear", help="Linear issue URL")
         create_parser.add_argument(
             "--python-install",
