@@ -2887,6 +2887,9 @@ class CprojCLI:
         parser = self.create_parser()
         parsed_args = parser.parse_args(args)
 
+        # Store --yes flag for _is_interactive() check
+        self._skip_prompts = getattr(parsed_args, "yes", False)
+
         # Set logging level based on command-line argument
         log_level = getattr(logging, parsed_args.log_level)
         logger.setLevel(log_level)
@@ -3061,9 +3064,14 @@ class CprojCLI:
         return config
 
     def _is_interactive(self) -> bool:
-        """Check if we're running in an interactive terminal"""
+        """Check if we're running in an interactive terminal.
+
+        Returns False when --yes is set to skip all prompts.
+        """
         import sys
 
+        if getattr(self, "_skip_prompts", False):
+            return False
         return sys.stdin.isatty() and sys.stdout.isatty()
 
     def _check_unsync_changes(self, worktree_path: Path, repo_path: Path) -> Dict[str, Any]:
@@ -4091,6 +4099,22 @@ echo "🔗 Installing MCP servers..."
                 args.linear = linear_input
                 print(f"✅ Using Linear URL: {args.linear}")
             print()
+
+        # When --yes is passed, default all setup options to True
+        if self._skip_prompts and not any(
+            [args.python_install, args.node_install, args.java_build]
+        ):
+            repo_path_obj = Path(repo_path)
+            args.python_install = any(
+                (repo_path_obj / f).exists()
+                for f in ["pyproject.toml", "requirements.txt", "setup.py"]
+            )
+            args.node_install = (repo_path_obj / "package.json").exists()
+            args.java_build = any(
+                (repo_path_obj / f).exists()
+                for f in ["pom.xml", "build.gradle", "build.gradle.kts"]
+            )
+            args.copy_env = True
 
         # Interactive prompt for environment setup options if not specified and
         # in interactive mode
