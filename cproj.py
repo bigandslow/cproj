@@ -1515,9 +1515,7 @@ export CPROJ_BASE_PORT={base_port}
             pass
         return env_vars
 
-    def _env_files_differ(
-        self, file1: Path, file2: Path, ignore_vars: List[str]
-    ) -> bool:
+    def _env_files_differ(self, file1: Path, file2: Path, ignore_vars: List[str]) -> bool:
         """Compare two .env files, ignoring specified variables."""
         env1 = self._parse_env_file(file1)
         env2 = self._parse_env_file(file2)
@@ -1774,9 +1772,7 @@ export CPROJ_BASE_PORT={base_port}
                             updated_keys.append(key)
 
                     if updated_keys:
-                        self._write_env_file_with_updates(
-                            dest_file, source_env, updated_keys
-                        )
+                        self._write_env_file_with_updates(dest_file, source_env, updated_keys)
                         for key in updated_keys:
                             print(f"✅ Synced {key} from {rel_path}")
                         synced_count += len(updated_keys)
@@ -1829,9 +1825,7 @@ export CPROJ_BASE_PORT={base_port}
                 # Create backup if requested
                 if backup and dest_file.exists():
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    backup_file = dest_file.with_suffix(
-                        f"{dest_file.suffix}.backup_{timestamp}"
-                    )
+                    backup_file = dest_file.with_suffix(f"{dest_file.suffix}.backup_{timestamp}")
                     shutil.copy2(dest_file, backup_file)
                     print(f"📁 Backup created: {backup_file.name}")
 
@@ -1889,10 +1883,7 @@ export CPROJ_BASE_PORT={base_port}
         for source_file in found_files:
             # Skip hidden directories and common build/cache dirs
             rel_parts = source_file.relative_to(main_repo_path).parts[:-1]
-            if any(
-                part.startswith(".") and part not in [".env"]
-                for part in rel_parts
-            ):
+            if any(part.startswith(".") and part not in [".env"] for part in rel_parts):
                 continue
 
             # Skip node_modules, venv, etc.
@@ -1951,9 +1942,7 @@ export CPROJ_BASE_PORT={base_port}
                 # Create backup if requested
                 if backup:
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    backup_path = dest_file.with_suffix(
-                        f"{dest_file.suffix}.backup_{timestamp}"
-                    )
+                    backup_path = dest_file.with_suffix(f"{dest_file.suffix}.backup_{timestamp}")
                     shutil.copy2(dest_file, backup_path)
                     print(f"  📁 Backup: {backup_path.name}")
 
@@ -1970,9 +1959,7 @@ export CPROJ_BASE_PORT={base_port}
 
                 if updated_keys:
                     # Write updated file preserving order and comments
-                    self._write_env_file_with_updates(
-                        dest_file, source_env, updated_keys
-                    )
+                    self._write_env_file_with_updates(dest_file, source_env, updated_keys)
                     for key in updated_keys:
                         print(f"  ✅ Updated {key} in {rel_path}")
                     updated_count += len(updated_keys)
@@ -2015,10 +2002,7 @@ export CPROJ_BASE_PORT={base_port}
             rel_parts = f.relative_to(repo_path).parts[:-1]
             if any(part in skip_dirs for part in rel_parts):
                 continue
-            if any(
-                part.startswith(".") and part not in [".env"]
-                for part in rel_parts
-            ):
+            if any(part.startswith(".") and part not in [".env"] for part in rel_parts):
                 continue
             filtered_files.append(f)
 
@@ -5522,9 +5506,7 @@ echo "🔗 Installing MCP servers..."
             if keys_to_sync:
                 print("🔄 Propagating keys within main repo...")
                 main_env = EnvironmentSetup(main_repo_path)
-                main_env.propagate_keys_in_repo(
-                    main_repo_path, keys_to_sync, dry_run=args.dry_run
-                )
+                main_env.propagate_keys_in_repo(main_repo_path, keys_to_sync, dry_run=args.dry_run)
                 print()
 
             # Push from main to this worktree
@@ -5581,9 +5563,7 @@ echo "🔗 Installing MCP servers..."
         if keys_to_sync:
             print("\n🔄 Propagating keys within main repo...")
             env_setup = EnvironmentSetup(main_repo_path)
-            env_setup.propagate_keys_in_repo(
-                main_repo_path, keys_to_sync, dry_run=args.dry_run
-            )
+            env_setup.propagate_keys_in_repo(main_repo_path, keys_to_sync, dry_run=args.dry_run)
 
         print()
 
