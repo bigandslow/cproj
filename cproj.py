@@ -1671,6 +1671,7 @@ export CPROJ_BASE_PORT={base_port}
         dry_run: bool = False,
         backup: bool = False,
         keys: Optional[List[str]] = None,
+        interactive: bool = False,
     ):
         """Sync .env files from current worktree back to main repo.
 
@@ -1752,6 +1753,12 @@ export CPROJ_BASE_PORT={base_port}
                     synced_count += len(keys_found)
                     continue
 
+                if interactive:
+                    answer = input(f"Update {rel_path}? [y/N] ").strip().lower()
+                    if answer != "y":
+                        print(f"  Skipped {rel_path}")
+                        continue
+
                 try:
                     if backup:
                         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1821,6 +1828,12 @@ export CPROJ_BASE_PORT={base_port}
                 synced_count += 1
                 continue
 
+            if interactive:
+                answer = input(f"Update {rel_path}? [y/N] ").strip().lower()
+                if answer != "y":
+                    print(f"  Skipped {rel_path}")
+                    continue
+
             try:
                 # Create backup if requested
                 if backup and dest_file.exists():
@@ -1850,6 +1863,7 @@ export CPROJ_BASE_PORT={base_port}
         specific_file: Optional[str] = None,
         dry_run: bool = False,
         backup: bool = False,
+        interactive: bool = False,
     ):
         """Push specific env keys from main repo to this worktree.
 
@@ -1904,6 +1918,12 @@ export CPROJ_BASE_PORT={base_port}
                     updated_count += 1
                     continue
 
+                if interactive:
+                    answer = input(f"  Update {rel_path}? [y/N] ").strip().lower()
+                    if answer != "y":
+                        print(f"  Skipped {rel_path}")
+                        continue
+
                 try:
                     if backup and dest_file.exists():
                         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1937,6 +1957,12 @@ export CPROJ_BASE_PORT={base_port}
                     print(f"  [DRY RUN] Would update {key} in {rel_path}")
                 updated_count += len(keys_found)
                 continue
+
+            if interactive:
+                answer = input(f"  Update {rel_path}? [y/N] ").strip().lower()
+                if answer != "y":
+                    print(f"  Skipped {rel_path}")
+                    continue
 
             try:
                 # Create backup if requested
@@ -2807,10 +2833,29 @@ class CprojCLI:
             action="store_true",
             help="Create backup of existing files before overwriting",
         )
-        sync_env_parser.add_argument(
+        direction_group = sync_env_parser.add_mutually_exclusive_group()
+        direction_group.add_argument(
             "--push",
             action="store_true",
-            help="Push from main repo to worktree(s) instead of pulling",
+            help="Push env files from current location outward",
+        )
+        direction_group.add_argument(
+            "--pull",
+            action="store_true",
+            help="Pull env files from main repo into worktree",
+        )
+        confirm_group = sync_env_parser.add_mutually_exclusive_group()
+        confirm_group.add_argument(
+            "-f",
+            "--force",
+            action="store_true",
+            help="Skip all confirmation prompts",
+        )
+        confirm_group.add_argument(
+            "-i",
+            "--interactive",
+            action="store_true",
+            help="Prompt before each file",
         )
         sync_env_parser.add_argument(
             "--keys",
@@ -2819,7 +2864,7 @@ class CprojCLI:
         sync_env_parser.add_argument(
             "--all-worktrees",
             action="store_true",
-            help="Push to all worktrees (requires --push)",
+            help="Push to all worktrees (requires --push from main repo)",
         )
 
         # config command
@@ -5444,28 +5489,20 @@ echo "🔗 Installing MCP servers..."
 
     def cmd_sync_env(self, args):
         """Sync .env files between worktree and main repo"""
-        # Parse keys if provided
         keys_to_sync = None
         if args.keys:
             keys_to_sync = [k.strip() for k in args.keys.split(",")]
 
-        # Validate --all-worktrees requires --push
-        if args.all_worktrees and not args.push:
-            raise CprojError("--all-worktrees requires --push flag")
+        force = getattr(args, "force", False)
+        interactive = getattr(args, "interactive", False)
 
-        # Handle --push --all-worktrees mode
-        if args.push and args.all_worktrees:
-            self._push_env_to_all_worktrees(args, keys_to_sync)
-            return
-
-        # For single worktree operations, we need to be in a worktree or main repo
+        # Detect location: worktree vs main
         current_path = Path.cwd()
         agent_json_path = current_path / ".cproj" / ".agent.json"
         main_repo_path = None
+        in_worktree = False
 
-        # Check if we're in a worktree
         if not agent_json_path.exists():
-            # Check if we're in a subdirectory of a worktree
             parent = current_path.parent
             while parent != parent.parent:
                 if (parent / ".cproj" / ".agent.json").exists():
@@ -5474,62 +5511,164 @@ echo "🔗 Installing MCP servers..."
                     break
                 parent = parent.parent
 
-        # If we found a worktree, load the main repo path from it
         if agent_json_path.exists():
+            in_worktree = True
             try:
                 with open(agent_json_path, "r") as f:
                     agent_data = json.load(f)
                 main_repo_path = Path(agent_data["project"]["repo_path"])
             except (json.JSONDecodeError, IOError) as e:
                 raise CprojError(f"Failed to read .agent.json: {e}")
-        else:
-            # Not in a worktree - check if we're in main repo (for --push)
-            if args.push:
-                main_repo_path = self._find_git_root(Path.cwd())
-                if not main_repo_path:
-                    raise CprojError("Not in a git repository")
+
+        # Validate flag combinations per semantics table
+        if not in_worktree:
+            if args.pull:
+                raise CprojError("--pull can only be used from a worktree")
+            if args.push and not args.all_worktrees:
                 raise CprojError(
                     "When using --push from main repo, use --all-worktrees to push to all worktrees"
                 )
-            else:
-                raise CprojError(
-                    "Not in a cproj worktree. Run this command from a worktree directory."
-                )
+            if args.push and args.all_worktrees:
+                self._push_env_to_all_worktrees(args, keys_to_sync)
+                return
+            raise CprojError("Not in a cproj worktree. Run this command from a worktree directory.")
+
+        if args.all_worktrees:
+            raise CprojError("--all-worktrees can only be used from the main repo with --push")
 
         if not main_repo_path or not main_repo_path.exists():
             raise CprojError(f"Main repo path not found: {main_repo_path}")
 
+        # No direction flag: show diff summary
+        if not args.push and not args.pull:
+            self._show_env_diff_summary(current_path, main_repo_path, args.file)
+            return
+
         env_setup = EnvironmentSetup(current_path)
 
         if args.push:
-            # Propagate keys within main repo first
-            if keys_to_sync:
-                print("🔄 Propagating keys within main repo...")
-                main_env = EnvironmentSetup(main_repo_path)
-                main_env.propagate_keys_in_repo(main_repo_path, keys_to_sync, dry_run=args.dry_run)
-                print()
-
-            # Push from main to this worktree
-            env_setup.push_env_keys(
-                main_repo_path=main_repo_path,
-                keys=keys_to_sync,
-                specific_file=args.file,
-                dry_run=args.dry_run,
-                backup=args.backup,
-            )
-        else:
-            # Pull from worktree to main (original behavior)
+            # worktree -> main
+            if not force and not args.dry_run:
+                if not interactive:
+                    answer = input("Push worktree env to main? [y/N] ").strip().lower()
+                    if answer != "y":
+                        print("Aborted")
+                        return
             env_setup.sync_env_files(
                 main_repo_path=main_repo_path,
                 specific_file=args.file,
                 dry_run=args.dry_run,
                 backup=args.backup,
                 keys=keys_to_sync,
+                interactive=interactive,
+            )
+        else:
+            # --pull: main -> worktree
+            if keys_to_sync:
+                print("Propagating keys within main repo...")
+                main_env = EnvironmentSetup(main_repo_path)
+                main_env.propagate_keys_in_repo(main_repo_path, keys_to_sync, dry_run=args.dry_run)
+                print()
+
+            if not force and not args.dry_run:
+                if not interactive:
+                    answer = input("Pull main env into worktree? [y/N] ").strip().lower()
+                    if answer != "y":
+                        print("Aborted")
+                        return
+            env_setup.push_env_keys(
+                main_repo_path=main_repo_path,
+                keys=keys_to_sync,
+                specific_file=args.file,
+                dry_run=args.dry_run,
+                backup=args.backup,
+                interactive=interactive,
             )
 
-        # Run post-sync scripts if configured (e.g., update-env-ports.sh)
         if not args.dry_run:
             self._run_post_sync_hooks(current_path, main_repo_path)
+
+    def _show_env_diff_summary(
+        self,
+        worktree_path: Path,
+        main_repo_path: Path,
+        specific_file: Optional[str] = None,
+    ):
+        env_patterns = ["**/.env", "**/.env.*"]
+        wt_files: List[Path] = []
+        for pattern in env_patterns:
+            wt_files.extend(worktree_path.glob(pattern))
+
+        wt_files = [f for f in wt_files if not f.name.endswith(".example")]
+
+        skip_dirs = {"node_modules", ".venv", "venv", "__pycache__", ".git"}
+        filtered = []
+        for f in wt_files:
+            rel_parts = f.relative_to(worktree_path).parts[:-1]
+            if any(part in skip_dirs for part in rel_parts):
+                continue
+            if any(
+                part.startswith(".")
+                and part
+                not in [
+                    ".env",
+                    ".env.local",
+                    ".env.development",
+                    ".env.test",
+                    ".env.production",
+                    ".env.example",
+                ]
+                for part in rel_parts
+            ):
+                continue
+            filtered.append(f)
+        wt_files = filtered
+
+        if specific_file:
+            wt_files = [f for f in wt_files if f.name == specific_file]
+
+        if not wt_files:
+            print("No .env files found in worktree")
+            return
+
+        env_setup = EnvironmentSetup(worktree_path)
+
+        print("Env diff: worktree vs main\n")
+        for wt_file in sorted(wt_files):
+            rel_path = wt_file.relative_to(worktree_path)
+            main_file = main_repo_path / rel_path
+
+            if not main_file.exists():
+                print(f"  {rel_path}: new file (not in main)")
+                continue
+
+            wt_env = env_setup._parse_env_file(wt_file)
+            main_env = env_setup._parse_env_file(main_file)
+
+            if wt_env == main_env:
+                print(f"  {rel_path}: unchanged")
+                continue
+
+            all_keys = set(wt_env.keys()) | set(main_env.keys())
+            diff_count = 0
+            added = 0
+            removed = 0
+            for key in all_keys:
+                if key in wt_env and key not in main_env:
+                    added += 1
+                elif key not in wt_env and key in main_env:
+                    removed += 1
+                elif wt_env.get(key) != main_env.get(key):
+                    diff_count += 1
+
+            parts = []
+            if diff_count:
+                parts.append(f"{diff_count} key(s) differ")
+            if added:
+                parts.append(f"{added} added in worktree")
+            if removed:
+                parts.append(f"{removed} only in main")
+            print(f"  {rel_path}: {', '.join(parts)}")
 
     def _push_env_to_all_worktrees(self, args, keys_to_sync: Optional[List[str]]):
         """Push env keys from main repo to all worktrees"""
@@ -5559,6 +5698,15 @@ echo "🔗 Installing MCP servers..."
         if keys_to_sync:
             print(f"Keys to sync: {', '.join(keys_to_sync)}")
 
+        force = getattr(args, "force", False)
+        interactive = getattr(args, "interactive", False)
+
+        if not force and not interactive and not args.dry_run:
+            answer = input(f"Push to {len(managed_worktrees)} worktree(s)? [y/N] ").strip().lower()
+            if answer != "y":
+                print("Aborted")
+                return
+
         # Propagate keys within main repo first
         if keys_to_sync:
             print("\n🔄 Propagating keys within main repo...")
@@ -5568,6 +5716,12 @@ echo "🔗 Installing MCP servers..."
         print()
 
         for wt_path in managed_worktrees:
+            if interactive:
+                answer = input(f"Push to {wt_path.name}? [y/N] ").strip().lower()
+                if answer != "y":
+                    print(f"  Skipped {wt_path.name}")
+                    continue
+
             print(f"📁 {wt_path.name}")
             env_setup = EnvironmentSetup(wt_path)
             env_setup.push_env_keys(
