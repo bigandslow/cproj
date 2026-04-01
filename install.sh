@@ -49,7 +49,7 @@ mkdir -p "$BIN_DIR"
 
 # Create virtual environment for isolated installation
 echo -e "${BLUE}Creating isolated Python environment...${NC}"
-$PYTHON_VERSION -m venv "$INSTALL_DIR/venv"
+$PYTHON_VERSION -m venv --clear "$INSTALL_DIR/venv"
 
 # Activate virtual environment
 source "$INSTALL_DIR/venv/bin/activate"
