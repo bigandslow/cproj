@@ -1697,7 +1697,10 @@ export CPROJ_BASE_PORT={base_port}
 
         # Filter to specific file if requested
         if specific_file:
-            found_files = [f for f in found_files if f.name == specific_file]
+            if "/" in specific_file:
+                found_files = [f for f in found_files if str(f.relative_to(self.worktree_path)) == specific_file]
+            else:
+                found_files = [f for f in found_files if f.name == specific_file]
             if not found_files:
                 print(f"File {specific_file} not found in worktree")
                 return
@@ -1888,7 +1891,10 @@ export CPROJ_BASE_PORT={base_port}
 
         # Filter to specific file if requested
         if specific_file:
-            found_files = [f for f in found_files if f.name == specific_file]
+            if "/" in specific_file:
+                found_files = [f for f in found_files if str(f.relative_to(main_repo_path)) == specific_file]
+            else:
+                found_files = [f for f in found_files if f.name == specific_file]
             if not found_files:
                 print(f"  File {specific_file} not found in main repo")
                 return
@@ -5625,7 +5631,10 @@ echo "🔗 Installing MCP servers..."
         wt_files = filtered
 
         if specific_file:
-            wt_files = [f for f in wt_files if f.name == specific_file]
+            if "/" in specific_file:
+                wt_files = [f for f in wt_files if str(f.relative_to(worktree_path)) == specific_file]
+            else:
+                wt_files = [f for f in wt_files if f.name == specific_file]
 
         if not wt_files:
             print("No .env files found in worktree")
