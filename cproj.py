@@ -1698,7 +1698,10 @@ export CPROJ_BASE_PORT={base_port}
         # Filter to specific file if requested
         if specific_file:
             if "/" in specific_file:
-                found_files = [f for f in found_files if str(f.relative_to(self.worktree_path)) == specific_file]
+                found_files = [
+                    f for f in found_files
+                    if str(f.relative_to(self.worktree_path)) == specific_file
+                ]
             else:
                 found_files = [f for f in found_files if f.name == specific_file]
             if not found_files:
@@ -1892,7 +1895,10 @@ export CPROJ_BASE_PORT={base_port}
         # Filter to specific file if requested
         if specific_file:
             if "/" in specific_file:
-                found_files = [f for f in found_files if str(f.relative_to(main_repo_path)) == specific_file]
+                found_files = [
+                    f for f in found_files
+                    if str(f.relative_to(main_repo_path)) == specific_file
+                ]
             else:
                 found_files = [f for f in found_files if f.name == specific_file]
             if not found_files:
@@ -5632,7 +5638,10 @@ echo "🔗 Installing MCP servers..."
 
         if specific_file:
             if "/" in specific_file:
-                wt_files = [f for f in wt_files if str(f.relative_to(worktree_path)) == specific_file]
+                wt_files = [
+                    f for f in wt_files
+                    if str(f.relative_to(worktree_path)) == specific_file
+                ]
             else:
                 wt_files = [f for f in wt_files if f.name == specific_file]
 
