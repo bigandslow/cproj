@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import webbrowser
 import yaml
 from datetime import datetime, timezone
 from pathlib import Path
@@ -3995,7 +3996,7 @@ echo "🔗 Installing MCP servers..."
                 check=True,
                 capture_output=True,
                 text=True,
-                executable="/bin/bash",
+                executable=shutil.which("bash"),
             )
             if result.stdout:
                 print(result.stdout.strip())
@@ -5495,9 +5496,9 @@ echo "🔗 Installing MCP servers..."
         # Open browser links
         links = agent_json.data["links"]
         if links["linear"]:
-            subprocess.run(["open", links["linear"]], check=False)
+            webbrowser.open(links["linear"])
         if links["pr"]:
-            subprocess.run(["open", links["pr"]], check=False)
+            webbrowser.open(links["pr"])
 
     def cmd_sync_env(self, args):
         """Sync .env files between worktree and main repo"""
@@ -5789,7 +5790,7 @@ echo "🔗 Installing MCP servers..."
                         check=True,
                         capture_output=True,
                         text=True,
-                        executable="/bin/bash",
+                        executable=shutil.which("bash"),
                     )
                     if result.stdout:
                         print(f"  {result.stdout.strip()}")

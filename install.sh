@@ -6,6 +6,17 @@
 
 set -e
 
+# Detect platform (Git Bash on Windows sets OSTYPE to msys or mingw*)
+if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "mingw"* ]]; then
+    IS_WINDOWS=true
+    VENV_BIN="Scripts"
+    PYTHON_EXE="python.exe"
+else
+    IS_WINDOWS=false
+    VENV_BIN="bin"
+    PYTHON_EXE="python"
+fi
+
 # Get the directory where this script is located
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
@@ -19,18 +30,22 @@ NC='\033[0m' # No Color
 # Configuration
 INSTALL_DIR="${CPROJ_INSTALL_DIR:-$HOME/.local/share/cproj}"
 BIN_DIR="${CPROJ_BIN_DIR:-$HOME/.local/bin}"
-PYTHON_VERSION="${CPROJ_PYTHON:-python3}"
+if [ -n "$CPROJ_PYTHON" ]; then
+    PYTHON_VERSION="$CPROJ_PYTHON"
+elif command -v python3 >/dev/null 2>&1; then
+    PYTHON_VERSION="python3"
+elif command -v python >/dev/null 2>&1; then
+    PYTHON_VERSION="python"
+else
+    echo -e "${RED}Python 3 not found. Please install Python 3.8 or later.${NC}"
+    exit 1
+fi
 
 echo -e "${BLUE}🚀 Installing cproj - Multi-project CLI with git worktree + uv${NC}"
 echo
 
 # Check if Python 3.8+ is available
 echo -e "${BLUE}Checking Python version...${NC}"
-if ! command -v "$PYTHON_VERSION" >/dev/null 2>&1; then
-    echo -e "${RED}❌ Python 3 not found. Please install Python 3.8 or later.${NC}"
-    exit 1
-fi
-
 PYTHON_VER=$($PYTHON_VERSION -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
 PYTHON_VER_MAJOR=$($PYTHON_VERSION -c "import sys; print(sys.version_info.major)")
 PYTHON_VER_MINOR=$($PYTHON_VERSION -c "import sys; print(sys.version_info.minor)")
@@ -52,11 +67,11 @@ echo -e "${BLUE}Creating isolated Python environment...${NC}"
 $PYTHON_VERSION -m venv --clear "$INSTALL_DIR/venv"
 
 # Activate virtual environment
-source "$INSTALL_DIR/venv/bin/activate"
+source "$INSTALL_DIR/venv/$VENV_BIN/activate"
 
 # Install dependencies
 echo -e "${BLUE}Installing dependencies...${NC}"
-pip install --quiet PyYAML
+"$INSTALL_DIR/venv/$VENV_BIN/pip" install --quiet PyYAML
 
 # Copy cproj.py to installation directory
 echo -e "${BLUE}Installing cproj...${NC}"
@@ -76,7 +91,7 @@ cat > "$BIN_DIR/cproj" << EOF
 # cproj wrapper script - executes cproj in isolated environment
 #
 export CPROJ_INSTALL_DIR="$INSTALL_DIR"
-exec "$INSTALL_DIR/venv/bin/python" "$INSTALL_DIR/cproj.py" "\$@"
+exec "$INSTALL_DIR/venv/$VENV_BIN/$PYTHON_EXE" "$INSTALL_DIR/cproj.py" "\$@"
 EOF
 
 chmod +x "$BIN_DIR/cproj"
