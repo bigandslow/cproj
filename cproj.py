@@ -411,7 +411,13 @@ class GitWorktree:
             print(f"Warning: Could not fast-forward {base_branch}")
 
         if current_branch and current_branch != base_branch:
-            self._run_git(["checkout", current_branch])
+            try:
+                self._run_git(["checkout", current_branch])
+            except subprocess.CalledProcessError:
+                print(
+                    f"Warning: could not restore '{current_branch}' in main repo "
+                    f"(likely checked out in a worktree); leaving on '{base_branch}'"
+                )
 
     def branch_exists(self, branch: str) -> bool:
         """Check if a branch exists"""
@@ -3867,9 +3873,19 @@ echo "🔗 Installing MCP servers..."
             config.enable_feature(feature, enabled)
 
     def _execute_custom_actions(
-        self, project_config: ProjectConfig, worktree_path: Path, repo_path: Path, branch: str = ""
+        self,
+        project_config: ProjectConfig,
+        worktree_path: Path,
+        repo_path: Path,
+        branch: str = "",
+        no_terminal: bool = False,
     ):
-        """Execute custom actions defined in project configuration"""
+        """Execute custom actions defined in project configuration.
+
+        no_terminal is plumbed through to run_command actions as the
+        CPROJ_NO_TERMINAL env var so user-defined commands that launch
+        terminals (osascript, gnome-terminal, etc.) can honor the flag.
+        """
         actions = project_config.get_custom_actions()
 
         for action in actions:
@@ -3880,7 +3896,9 @@ echo "🔗 Installing MCP servers..."
             elif action_type == "copy_directory":
                 self._execute_copy_directory(action, worktree_path, repo_path)
             elif action_type == "run_command":
-                self._execute_run_command(action, worktree_path, repo_path, branch)
+                self._execute_run_command(
+                    action, worktree_path, repo_path, branch, no_terminal=no_terminal
+                )
             elif action_type == "copy_env_files":
                 self._execute_copy_env_files(action, worktree_path, repo_path)
             elif action_type == "allocate_port":
@@ -3955,7 +3973,12 @@ echo "🔗 Installing MCP servers..."
             logger.warning(f"Failed to copy directory: {e}")
 
     def _execute_run_command(
-        self, action: Dict[str, Any], worktree_path: Path, repo_path: Path, branch: str = ""
+        self,
+        action: Dict[str, Any],
+        worktree_path: Path,
+        repo_path: Path,
+        branch: str = "",
+        no_terminal: bool = False,
     ):
         """Execute shell command action.
 
@@ -3964,6 +3987,11 @@ echo "🔗 Installing MCP servers..."
           {repo_path} - absolute path to the main repository
           {worktree_name} - name of the worktree directory
           {branch} - full branch name (e.g., feature/foo)
+
+        Environment variables exposed to the command:
+          CPROJ_NO_TERMINAL=1 when --no-terminal was passed, so custom
+          actions that launch terminals (osascript, gnome-terminal, etc.)
+          can suppress themselves.
         """
         command = action.get("command")
         description = action.get("description", "Running custom command")
@@ -3988,6 +4016,12 @@ echo "🔗 Installing MCP servers..."
                 # This makes nvm and Node.js available for commands that need them
                 command = f"source .cproj/setup-claude.sh && {command}"
 
+            # Propagate --no-terminal to the action's environment so it can
+            # gate any terminal-launching osascript/gnome-terminal/etc. calls.
+            cmd_env = {**os.environ}
+            if no_terminal:
+                cmd_env["CPROJ_NO_TERMINAL"] = "1"
+
             # Run command in the worktree directory
             result = subprocess.run(
                 command,
@@ -3997,6 +4031,7 @@ echo "🔗 Installing MCP servers..."
                 capture_output=True,
                 text=True,
                 executable=shutil.which("bash"),
+                env=cmd_env,
             )
             if result.stdout:
                 print(result.stdout.strip())
@@ -4260,7 +4295,13 @@ echo "🔗 Installing MCP servers..."
         # Custom actions are executed in the order specified in project.yaml
         # This allows projects to control when .env files are copied, when ports
         # are allocated, and when project-specific scripts (like update-env-ports.sh) run
-        self._execute_custom_actions(project_config, worktree_path, repo_path, args.branch)
+        self._execute_custom_actions(
+            project_config,
+            worktree_path,
+            repo_path,
+            args.branch,
+            no_terminal=args.no_terminal,
+        )
 
         print(f"Created worktree: {worktree_path}")
         print(f"Branch: {args.branch}")
