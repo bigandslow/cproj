@@ -603,7 +603,7 @@ class TestIntegration(unittest.TestCase):
 
         # Test worktree creation
         worktree_path = self.temp_dir / "test_worktree"
-        created_path = git.create_worktree(worktree_path, "feature/test", "main", interactive=False)
+        created_path = git.create_worktree(worktree_path, "feature/test", "main")
 
         self.assertEqual(created_path, worktree_path)
         self.assertTrue(worktree_path.exists())
