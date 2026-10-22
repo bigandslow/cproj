@@ -614,13 +614,7 @@ class GitWorktree:
     def is_branch_dirty(self, worktree_path: Path) -> bool:
         """Check if worktree has uncommitted changes"""
         try:
-            result = self._run_git(
-                ["status", "--porcelain"],
-                cwd=worktree_path,
-                capture_output=True,
-                text=True,
-            )
-            return bool(result.stdout.strip())
+            return self.has_uncommitted_changes(worktree_path)
         except subprocess.CalledProcessError:
             return False
 
