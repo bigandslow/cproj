@@ -13,7 +13,14 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from cproj import AgentJson, CprojCLI, CprojError, EnvironmentSetup, PortRegistry  # noqa: E402
+from cproj import (  # noqa: E402
+    AgentJson,
+    CprojCLI,
+    CprojError,
+    EnvironmentSetup,
+    PortRegistry,
+    find_env_files,
+)
 
 
 def _git(cwd, *args):
@@ -168,6 +175,25 @@ class TestWorktreeResume(unittest.TestCase):
         with self.assertRaisesRegex(CprojError, "checked out in the main repo"):
             self.cli.cmd_worktree_create(self._args(base="main", recreate=True))
         self.assertTrue(self.repo_dir.exists())
+
+
+class TestFindEnvFiles(unittest.TestCase):
+    def test_skips_hidden_and_dependency_dirs(self):
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root)
+        for rel in [
+            ".env",
+            "app/.env.local",
+            "app/.envrc",
+            ".claude/worktrees/x/.env",
+            ".devcontainer/.env",
+            "node_modules/pkg/.env",
+            "venv/.env",
+        ]:
+            (root / rel).parent.mkdir(parents=True, exist_ok=True)
+            (root / rel).write_text("A=1")
+
+        self.assertEqual(set(find_env_files(root)), {root / ".env", root / "app" / ".env.local"})
 
 
 if __name__ == "__main__":

@@ -19,7 +19,7 @@ import webbrowser
 import yaml
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Sequence
 
 # Setup logging
 logger = logging.getLogger("cproj")
@@ -448,24 +448,12 @@ class GitWorktree:
     def find_worktree_for_branch(self, branch: str) -> Optional[Path]:
         """Return the path of the worktree that has branch checked out, if any"""
         try:
-            result = self._run_git(
-                ["worktree", "list", "--porcelain"],
-                capture_output=True,
-                text=True,
-            )
-            current_path = None
-            for line in result.stdout.strip().split("\n"):
-                if line.startswith("worktree "):
-                    current_path = Path(line[len("worktree ") :])
-                elif line.startswith("branch "):
-                    current_branch = (
-                        line.split("refs/heads/", 1)[1] if "refs/heads/" in line else None
-                    )
-                    if current_branch == branch:
-                        return current_path
-            return None
+            for wt in self.list_worktrees():
+                if wt.get("branch") == branch:
+                    return Path(wt["path"])
         except subprocess.CalledProcessError:
-            return None
+            pass
+        return None
 
     def create_worktree(
         self,
@@ -608,6 +596,20 @@ class GitWorktree:
     def push_branch(self, branch: str, worktree_path: Path):
         """Push branch to origin"""
         self._run_git(["push", "-u", "origin", branch], cwd=worktree_path)
+
+    def has_uncommitted_changes(self, worktree_path: Path, exclude: Sequence[str] = ()) -> bool:
+        """Check for uncommitted changes, ignoring paths in exclude.
+
+        Unlike is_branch_dirty, git errors propagate so callers fail closed.
+        """
+        pathspec = ["--", "."] + [f":!{path}" for path in exclude]
+        result = self._run_git(
+            ["status", "--porcelain", *pathspec],
+            cwd=worktree_path,
+            capture_output=True,
+            text=True,
+        )
+        return bool(result.stdout.strip())
 
     def is_branch_dirty(self, worktree_path: Path) -> bool:
         """Check if worktree has uncommitted changes"""
@@ -1452,22 +1454,6 @@ export CPROJ_BASE_PORT={base_port}
 
         # Copy files, preserving directory structure
         for source_file in found_files:
-            # Skip hidden directories and common build/cache dirs
-            if any(
-                part.startswith(".")
-                and part
-                not in [
-                    ".env",
-                    ".env.local",
-                    ".env.development",
-                    ".env.test",
-                    ".env.production",
-                    ".env.example",
-                ]
-                for part in source_file.relative_to(repo_path).parts[:-1]
-            ):
-                continue
-
             # Calculate relative path from repo root
             rel_path = source_file.relative_to(repo_path)
             dest_file = self.worktree_path / rel_path
@@ -1528,22 +1514,6 @@ export CPROJ_BASE_PORT={base_port}
         different_files: List[Path] = []
 
         for source_file in found_files:
-            # Skip hidden directories and common build/cache dirs
-            if any(
-                part.startswith(".")
-                and part
-                not in [
-                    ".env",
-                    ".env.local",
-                    ".env.development",
-                    ".env.test",
-                    ".env.production",
-                    ".env.example",
-                ]
-                for part in source_file.relative_to(self.worktree_path).parts[:-1]
-            ):
-                continue
-
             # Calculate relative path and destination
             rel_path = source_file.relative_to(self.worktree_path)
             dest_file = main_repo_path / rel_path
@@ -1687,30 +1657,6 @@ export CPROJ_BASE_PORT={base_port}
 
         synced_count = 0
         for source_file in found_files:
-            # Skip hidden directories and common build/cache dirs
-            rel_parts = source_file.relative_to(self.worktree_path).parts[:-1]
-            if any(
-                part.startswith(".")
-                and part
-                not in [
-                    ".env",
-                    ".env.local",
-                    ".env.development",
-                    ".env.test",
-                    ".env.production",
-                    ".env.example",
-                ]
-                for part in rel_parts
-            ):
-                continue
-
-            # Skip node_modules, venv, etc.
-            if any(
-                part in ["node_modules", ".venv", "venv", "__pycache__", ".git"]
-                for part in rel_parts
-            ):
-                continue
-
             # Calculate relative path and destination
             rel_path = source_file.relative_to(self.worktree_path)
             dest_file = main_repo_path / rel_path
@@ -1879,18 +1825,6 @@ export CPROJ_BASE_PORT={base_port}
 
         updated_count = 0
         for source_file in found_files:
-            # Skip hidden directories and common build/cache dirs
-            rel_parts = source_file.relative_to(main_repo_path).parts[:-1]
-            if any(part.startswith(".") and part not in [".env"] for part in rel_parts):
-                continue
-
-            # Skip node_modules, venv, etc.
-            if any(
-                part in ["node_modules", ".venv", "venv", "__pycache__", ".git"]
-                for part in rel_parts
-            ):
-                continue
-
             # Calculate relative path and destination
             rel_path = source_file.relative_to(main_repo_path)
             dest_file = self.worktree_path / rel_path
@@ -2001,24 +1935,13 @@ export CPROJ_BASE_PORT={base_port}
         # Skip .example files (these contain placeholder values)
         found_files = [f for f in found_files if not f.name.endswith(".example")]
 
-        # Skip irrelevant directories
-        skip_dirs = {"node_modules", ".venv", "venv", "__pycache__", ".git"}
-        filtered_files = []
-        for f in found_files:
-            rel_parts = f.relative_to(repo_path).parts[:-1]
-            if any(part in skip_dirs for part in rel_parts):
-                continue
-            if any(part.startswith(".") and part not in [".env"] for part in rel_parts):
-                continue
-            filtered_files.append(f)
-
         # For each key, find canonical value from most recently modified file
         canonical: Dict[str, str] = {}
         canonical_source: Dict[str, Path] = {}
 
         for key in keys:
             best_mtime = 0.0
-            for f in filtered_files:
+            for f in found_files:
                 env_vars = self._parse_env_file(f)
                 if key in env_vars:
                     mtime = f.stat().st_mtime
@@ -2037,7 +1960,7 @@ export CPROJ_BASE_PORT={base_port}
 
         # Propagate to all other files in the repo
         propagated = 0
-        for f in filtered_files:
+        for f in found_files:
             env_vars = self._parse_env_file(f)
             keys_to_update = []
 
@@ -4310,19 +4233,15 @@ echo "🔗 Installing MCP servers..."
                 f"{existing} is not a cproj worktree; refusing to remove it with --recreate."
             )
         # cproj's own files under .cproj/ don't count as user changes
-        status = git._run_git(
-            ["status", "--porcelain", "--", ".", ":!.cproj"],
-            cwd=existing,
-            capture_output=True,
-            text=True,
-        )
-        if status.stdout.strip():
+        if git.has_uncommitted_changes(existing, exclude=[".cproj"]):
             raise CprojError(
                 f"Worktree {existing} has uncommitted changes; refusing to recreate it."
             )
         print(f"🗑️  Removing existing worktree {existing}")
         git.remove_worktree(existing, force=True)
         if project_config.is_feature_enabled("port_allocation"):
+            # Port slots are keyed by the configured project name, which can
+            # differ from the repo directory name
             PortRegistry().deallocate(project_config.get_project_name(), existing)
 
     def _setup_worktree(
@@ -5734,29 +5653,6 @@ echo "🔗 Installing MCP servers..."
         wt_files = find_env_files(worktree_path)
 
         wt_files = [f for f in wt_files if not f.name.endswith(".example")]
-
-        skip_dirs = {"node_modules", ".venv", "venv", "__pycache__", ".git"}
-        filtered = []
-        for f in wt_files:
-            rel_parts = f.relative_to(worktree_path).parts[:-1]
-            if any(part in skip_dirs for part in rel_parts):
-                continue
-            if any(
-                part.startswith(".")
-                and part
-                not in [
-                    ".env",
-                    ".env.local",
-                    ".env.development",
-                    ".env.test",
-                    ".env.production",
-                    ".env.example",
-                ]
-                for part in rel_parts
-            ):
-                continue
-            filtered.append(f)
-        wt_files = filtered
 
         if specific_file:
             if "/" in specific_file:
