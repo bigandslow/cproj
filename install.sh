@@ -37,21 +37,21 @@ elif command -v python3 >/dev/null 2>&1; then
 elif command -v python >/dev/null 2>&1; then
     PYTHON_VERSION="python"
 else
-    echo -e "${RED}Python 3 not found. Please install Python 3.8 or later.${NC}"
+    echo -e "${RED}Python 3 not found. Please install Python 3.10 or later.${NC}"
     exit 1
 fi
 
 echo -e "${BLUE}🚀 Installing cproj - Multi-project CLI with git worktree + uv${NC}"
 echo
 
-# Check if Python 3.8+ is available
+# Check if Python 3.10+ is available
 echo -e "${BLUE}Checking Python version...${NC}"
 PYTHON_VER=$($PYTHON_VERSION -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
 PYTHON_VER_MAJOR=$($PYTHON_VERSION -c "import sys; print(sys.version_info.major)")
 PYTHON_VER_MINOR=$($PYTHON_VERSION -c "import sys; print(sys.version_info.minor)")
 
-if [ "$PYTHON_VER_MAJOR" -lt 3 ] || [ "$PYTHON_VER_MAJOR" -eq 3 -a "$PYTHON_VER_MINOR" -lt 8 ]; then
-    echo -e "${RED}❌ Python 3.8+ required, found Python $PYTHON_VER${NC}"
+if [ "$PYTHON_VER_MAJOR" -lt 3 ] || [ "$PYTHON_VER_MAJOR" -eq 3 -a "$PYTHON_VER_MINOR" -lt 10 ]; then
+    echo -e "${RED}❌ Python 3.10+ required, found Python $PYTHON_VER${NC}"
     exit 1
 fi
 
