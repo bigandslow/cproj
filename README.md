@@ -28,7 +28,7 @@ cproj cleanup
 
 | Command | Description |
 |---------|-------------|
-| `cproj w create --branch <name>` | Create isolated workspace |
+| `cproj w create --branch <name>` | Create isolated workspace (re-run to resume an interrupted setup; `--recreate` to start over, keeping the branch) |
 | `cproj status` | Show all workspace statuses |
 | `cproj list` | List worktrees |
 | `cproj review open` | Create PR |
@@ -86,6 +86,8 @@ mcp_servers:
 | `copy_workspace_file` | Copy with rename pattern |
 | `allocate_port` | Allocate unique port offset |
 | `run_command` | Run shell command |
+
+Custom actions run again when an interrupted `cproj w create` is resumed, so `run_command` scripts should be safe to re-run.
 
 ### run_command Placeholders
 

@@ -19,7 +19,7 @@ import webbrowser
 import yaml
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Sequence
 
 # Setup logging
 logger = logging.getLogger("cproj")
@@ -28,6 +28,24 @@ formatter = logging.Formatter("%(levelname)s: %(message)s")
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 logger.setLevel(logging.INFO)
+
+
+# Directories never searched for .env files. Pruned during the walk so large
+# trees (nested worktrees under .claude/, node_modules) are never descended.
+ENV_SEARCH_SKIP_DIRS = {"node_modules", "venv", "__pycache__"}
+
+
+def find_env_files(root: Path) -> List[Path]:
+    """Find .env and .env.* files under root, skipping hidden and dependency dirs."""
+    found: List[Path] = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [
+            d for d in dirnames if not d.startswith(".") and d not in ENV_SEARCH_SKIP_DIRS
+        ]
+        for name in filenames:
+            if name == ".env" or name.startswith(".env."):
+                found.append(Path(dirpath) / name)
+    return found
 
 
 class CprojError(Exception):
@@ -427,33 +445,21 @@ class GitWorktree:
         except subprocess.CalledProcessError:
             return False
 
-    def is_branch_checked_out(self, branch: str) -> bool:
-        """Check if a branch is already checked out in a worktree"""
+    def find_worktree_for_branch(self, branch: str) -> Optional[Path]:
+        """Return the path of the worktree that has branch checked out, if any"""
         try:
-            # List all worktrees and check if any have this branch checked out
-            result = self._run_git(
-                ["worktree", "list", "--porcelain"],
-                capture_output=True,
-                text=True,
-            )
-            current_branch = None
-            for line in result.stdout.strip().split("\n"):
-                if line.startswith("branch "):
-                    current_branch = (
-                        line.split("refs/heads/", 1)[1] if "refs/heads/" in line else None
-                    )
-                    if current_branch == branch:
-                        return True
-            return False
+            for wt in self.list_worktrees():
+                if wt.get("branch") == branch:
+                    return Path(wt["path"])
         except subprocess.CalledProcessError:
-            return False
+            pass
+        return None
 
     def create_worktree(
         self,
         worktree_path: Path,
         branch: str,
         base_branch: str,
-        interactive: bool = True,
     ) -> Path:
         """Create a new worktree"""
         worktree_path.parent.mkdir(parents=True, exist_ok=True)
@@ -461,57 +467,13 @@ class GitWorktree:
         # Check if branch already exists
         if self.branch_exists(branch):
             # Check if it's already checked out somewhere
-            if self.is_branch_checked_out(branch):
-                if interactive:
-                    print(f"⚠️  Branch '{branch}' is already checked out in " f"another worktree.")
-                    print("\nOptions:")
-                    print("  1. Create worktree with a different branch name")
-                    print("  2. Switch to existing worktree (if you know where " "it is)")
-                    print("  3. Force create worktree (may cause issues)")
-                    print("  4. Cancel")
-
-                    while True:
-                        choice = input("Choose option [1-4]: ").strip()
-                        if choice == "1":
-                            new_branch = input("Enter new branch name: ").strip()
-                            if new_branch:
-                                branch = new_branch
-                                break
-                            else:
-                                print("❌ Branch name cannot be empty")
-                                continue
-                        elif choice == "2":
-                            raise CprojError(
-                                f"Branch '{branch}' is checked out elsewhere. "
-                                f"Use 'git worktree list' to find it."
-                            )
-                        elif choice == "3":
-                            # Force create new worktree, detaching the branch
-                            # from current location
-                            try:
-                                self._run_git(
-                                    [
-                                        "worktree",
-                                        "add",
-                                        "--force",
-                                        str(worktree_path),
-                                        branch,
-                                    ]
-                                )
-                                return worktree_path
-                            except subprocess.CalledProcessError as e:
-                                raise CprojError(f"Failed to force create worktree: {e}")
-                        elif choice == "4":
-                            raise CprojError("Worktree creation cancelled by user")
-                        else:
-                            print("❌ Please enter 1, 2, 3, or 4")
-                            continue
-                else:
-                    raise CprojError(
-                        f"Branch '{branch}' is already checked out. "
-                        "Use --force to override or choose a different branch "
-                        "name."
-                    )
+            existing = self.find_worktree_for_branch(branch)
+            if existing:
+                raise CprojError(
+                    f"Branch '{branch}' is already checked out in {existing}. "
+                    f"Remove that worktree ('git worktree remove {existing}') "
+                    "or choose a different branch name."
+                )
 
             # Branch exists but not checked out, use it
             try:
@@ -635,16 +597,24 @@ class GitWorktree:
         """Push branch to origin"""
         self._run_git(["push", "-u", "origin", branch], cwd=worktree_path)
 
+    def has_uncommitted_changes(self, worktree_path: Path, exclude: Sequence[str] = ()) -> bool:
+        """Check for uncommitted changes, ignoring paths in exclude.
+
+        Unlike is_branch_dirty, git errors propagate so callers fail closed.
+        """
+        pathspec = ["--", "."] + [f":!{path}" for path in exclude]
+        result = self._run_git(
+            ["status", "--porcelain", *pathspec],
+            cwd=worktree_path,
+            capture_output=True,
+            text=True,
+        )
+        return bool(result.stdout.strip())
+
     def is_branch_dirty(self, worktree_path: Path) -> bool:
         """Check if worktree has uncommitted changes"""
         try:
-            result = self._run_git(
-                ["status", "--porcelain"],
-                cwd=worktree_path,
-                capture_output=True,
-                text=True,
-            )
-            return bool(result.stdout.strip())
+            return self.has_uncommitted_changes(worktree_path)
         except subprocess.CalledProcessError:
             return False
 
@@ -1144,7 +1114,8 @@ class AgentJson:
         self.data["workspace"]["path"] = path
         self.data["workspace"]["branch"] = branch
         self.data["workspace"]["base"] = base
-        self.data["workspace"]["created_at"] = datetime.now(timezone.utc).isoformat()
+        if not self.data["workspace"].get("created_at"):
+            self.data["workspace"]["created_at"] = datetime.now(timezone.utc).isoformat()
 
     def set_link(self, link_type: str, url: str):
         if link_type in self.data["links"]:
@@ -1153,6 +1124,12 @@ class AgentJson:
     def set_env(self, env_type: str, env_data: Dict):
         if env_type in self.data["env"]:
             self.data["env"][env_type].update(env_data)
+
+    def mark_setup_complete(self):
+        self.data["workspace"]["setup_completed_at"] = datetime.now(timezone.utc).isoformat()
+
+    def is_setup_complete(self) -> bool:
+        return bool(self.data["workspace"].get("setup_completed_at"))
 
     def close_workspace(self):
         self.data["workspace"]["closed_at"] = datetime.now(timezone.utc).isoformat()
@@ -1463,11 +1440,7 @@ export CPROJ_BASE_PORT={base_port}
         subdirectories"""
 
         # Find all .env* files in the repo (including subdirectories)
-        env_patterns = ["**/.env", "**/.env.*"]
-        found_files: List[Path] = []
-
-        for pattern in env_patterns:
-            found_files.extend(repo_path.glob(pattern))
+        found_files = find_env_files(repo_path)
 
         if not found_files:
             print("No .env files found in main repo")
@@ -1475,22 +1448,6 @@ export CPROJ_BASE_PORT={base_port}
 
         # Copy files, preserving directory structure
         for source_file in found_files:
-            # Skip hidden directories and common build/cache dirs
-            if any(
-                part.startswith(".")
-                and part
-                not in [
-                    ".env",
-                    ".env.local",
-                    ".env.development",
-                    ".env.test",
-                    ".env.production",
-                    ".env.example",
-                ]
-                for part in source_file.relative_to(repo_path).parts[:-1]
-            ):
-                continue
-
             # Calculate relative path from repo root
             rel_path = source_file.relative_to(repo_path)
             dest_file = self.worktree_path / rel_path
@@ -1547,30 +1504,10 @@ export CPROJ_BASE_PORT={base_port}
             ignore_vars = []
 
         # Find all .env* files in the current worktree
-        env_patterns = ["**/.env", "**/.env.*"]
-        found_files: List[Path] = []
+        found_files = find_env_files(self.worktree_path)
         different_files: List[Path] = []
 
-        for pattern in env_patterns:
-            found_files.extend(self.worktree_path.glob(pattern))
-
         for source_file in found_files:
-            # Skip hidden directories and common build/cache dirs
-            if any(
-                part.startswith(".")
-                and part
-                not in [
-                    ".env",
-                    ".env.local",
-                    ".env.development",
-                    ".env.test",
-                    ".env.production",
-                    ".env.example",
-                ]
-                for part in source_file.relative_to(self.worktree_path).parts[:-1]
-            ):
-                continue
-
             # Calculate relative path and destination
             rel_path = source_file.relative_to(self.worktree_path)
             dest_file = main_repo_path / rel_path
@@ -1689,11 +1626,7 @@ export CPROJ_BASE_PORT={base_port}
         import difflib
 
         # Find all .env* files in the current worktree
-        env_patterns = ["**/.env", "**/.env.*"]
-        found_files: List[Path] = []
-
-        for pattern in env_patterns:
-            found_files.extend(self.worktree_path.glob(pattern))
+        found_files = find_env_files(self.worktree_path)
 
         # Skip .example files (these contain placeholder values)
         found_files = [f for f in found_files if not f.name.endswith(".example")]
@@ -1718,30 +1651,6 @@ export CPROJ_BASE_PORT={base_port}
 
         synced_count = 0
         for source_file in found_files:
-            # Skip hidden directories and common build/cache dirs
-            rel_parts = source_file.relative_to(self.worktree_path).parts[:-1]
-            if any(
-                part.startswith(".")
-                and part
-                not in [
-                    ".env",
-                    ".env.local",
-                    ".env.development",
-                    ".env.test",
-                    ".env.production",
-                    ".env.example",
-                ]
-                for part in rel_parts
-            ):
-                continue
-
-            # Skip node_modules, venv, etc.
-            if any(
-                part in ["node_modules", ".venv", "venv", "__pycache__", ".git"]
-                for part in rel_parts
-            ):
-                continue
-
             # Calculate relative path and destination
             rel_path = source_file.relative_to(self.worktree_path)
             dest_file = main_repo_path / rel_path
@@ -1887,11 +1796,7 @@ export CPROJ_BASE_PORT={base_port}
         from datetime import datetime
 
         # Find all .env* files in the main repo
-        env_patterns = ["**/.env", "**/.env.*"]
-        found_files: List[Path] = []
-
-        for pattern in env_patterns:
-            found_files.extend(main_repo_path.glob(pattern))
+        found_files = find_env_files(main_repo_path)
 
         # Skip .example files (these contain placeholder values)
         found_files = [f for f in found_files if not f.name.endswith(".example")]
@@ -1914,18 +1819,6 @@ export CPROJ_BASE_PORT={base_port}
 
         updated_count = 0
         for source_file in found_files:
-            # Skip hidden directories and common build/cache dirs
-            rel_parts = source_file.relative_to(main_repo_path).parts[:-1]
-            if any(part.startswith(".") and part not in [".env"] for part in rel_parts):
-                continue
-
-            # Skip node_modules, venv, etc.
-            if any(
-                part in ["node_modules", ".venv", "venv", "__pycache__", ".git"]
-                for part in rel_parts
-            ):
-                continue
-
             # Calculate relative path and destination
             rel_path = source_file.relative_to(main_repo_path)
             dest_file = self.worktree_path / rel_path
@@ -2031,25 +1924,10 @@ export CPROJ_BASE_PORT={base_port}
 
         Returns the canonical values dict.
         """
-        env_patterns = ["**/.env", "**/.env.*"]
-        found_files: List[Path] = []
-
-        for pattern in env_patterns:
-            found_files.extend(repo_path.glob(pattern))
+        found_files = find_env_files(repo_path)
 
         # Skip .example files (these contain placeholder values)
         found_files = [f for f in found_files if not f.name.endswith(".example")]
-
-        # Skip irrelevant directories
-        skip_dirs = {"node_modules", ".venv", "venv", "__pycache__", ".git"}
-        filtered_files = []
-        for f in found_files:
-            rel_parts = f.relative_to(repo_path).parts[:-1]
-            if any(part in skip_dirs for part in rel_parts):
-                continue
-            if any(part.startswith(".") and part not in [".env"] for part in rel_parts):
-                continue
-            filtered_files.append(f)
 
         # For each key, find canonical value from most recently modified file
         canonical: Dict[str, str] = {}
@@ -2057,7 +1935,7 @@ export CPROJ_BASE_PORT={base_port}
 
         for key in keys:
             best_mtime = 0.0
-            for f in filtered_files:
+            for f in found_files:
                 env_vars = self._parse_env_file(f)
                 if key in env_vars:
                     mtime = f.stat().st_mtime
@@ -2076,7 +1954,7 @@ export CPROJ_BASE_PORT={base_port}
 
         # Propagate to all other files in the repo
         propagated = 0
-        for f in filtered_files:
+        for f in found_files:
             env_vars = self._parse_env_file(f)
             keys_to_update = []
 
@@ -2740,6 +2618,12 @@ class CprojCLI:
             "--no-claude",
             action="store_true",
             help="Skip Claude workspace setup",
+        )
+        create_parser.add_argument(
+            "--recreate",
+            action="store_true",
+            help="Remove this branch's existing cproj worktree and set it up fresh "
+            "(the branch and its commits are kept)",
         )
 
         # review command
@@ -4065,8 +3949,11 @@ echo "🔗 Installing MCP servers..."
         max_slots = project_config.get_max_slots()
         base_port = project_config.get_base_port()
 
-        # Get next available offset
-        offset = port_registry.get_next_available_offset(project_name, max_slots)
+        # Reuse this worktree's offset if it already has one (resumed setup),
+        # otherwise take the next available slot
+        offset = port_registry.get_offset(project_name, worktree_path)
+        if offset is None:
+            offset = port_registry.get_next_available_offset(project_name, max_slots)
 
         if offset is None:
             print(f"⚠️  Warning: All port slots (0-{max_slots}) are allocated!")
@@ -4244,18 +4131,130 @@ echo "🔗 Installing MCP servers..."
         git.fetch_all()
         git.ensure_base_branch(base_branch)
 
-        # Create worktree path
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        worktree_name = f"{project_name}_{args.branch}_{timestamp}"
-        worktree_path = temp_root / worktree_name
+        # Handle a branch that is already checked out (e.g. an interrupted
+        # create): resume or recreate a cproj worktree, open a finished one
+        worktree_path = None
+        while True:
+            existing = git.find_worktree_for_branch(args.branch)
+            if not existing:
+                break
+            if existing.resolve() == repo_path.resolve():
+                raise CprojError(
+                    f"Branch '{args.branch}' is checked out in the main repo ({repo_path}). "
+                    "Switch branches there first, or choose a different branch name."
+                )
+            if args.recreate:
+                self._remove_worktree_for_recreate(git, existing, project_config)
+                break
+            action = self._resolve_existing_worktree(existing, args)
+            if action == "resume":
+                worktree_path = existing
+                break
+            if action == "done":
+                self._open_worktree(existing, args, project_config)
+                return
+            # action == "rename": args.branch changed, check the new name
 
-        # Create worktree
-        git.create_worktree(
-            worktree_path,
-            args.branch,
-            base_branch,
-            interactive=self._is_interactive(),
-        )
+        if worktree_path is None:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            worktree_name = f"{project_name}_{args.branch}_{timestamp}"
+            worktree_path = temp_root / worktree_name
+            git.create_worktree(worktree_path, args.branch, base_branch)
+        else:
+            print(f"🔁 Resuming setup of {worktree_path}")
+
+        try:
+            self._setup_worktree(
+                worktree_path, repo_path, project_name, base_branch, project_config, args
+            )
+        except KeyboardInterrupt:
+            print(
+                f"\nSetup interrupted. Worktree left at {worktree_path}\n"
+                "Re-run the same command to resume, or add --recreate to start over.",
+                file=sys.stderr,
+            )
+            raise
+
+        self._open_worktree(worktree_path, args, project_config)
+
+    def _resolve_existing_worktree(self, existing: Path, args) -> str:
+        """Decide what to do with a branch already checked out at existing.
+
+        Returns "resume" (finish setup there), "done" (setup already finished)
+        or "rename" (args.branch was changed to a new name). Raises CprojError
+        when the user cancels or the worktree is not cproj's.
+        """
+        agent_json_path = existing / ".cproj" / ".agent.json"
+        if not agent_json_path.exists():
+            if self._is_interactive():
+                print(f"⚠️  Branch '{args.branch}' is already checked out in {existing}")
+                new_branch = input("Enter a different branch name (or Enter to cancel): ").strip()
+                if new_branch:
+                    args.branch = new_branch
+                    return "rename"
+            raise CprojError(
+                f"Branch '{args.branch}' is already checked out in {existing}. "
+                f"Remove that worktree ('git worktree remove {existing}') "
+                "or choose a different branch name."
+            )
+
+        if AgentJson(existing).is_setup_complete():
+            print(f"✅ Worktree for '{args.branch}' already exists: {existing}")
+            return "done"
+
+        if self._is_interactive():
+            print(f"⚠️  A previous setup of '{args.branch}' did not finish: {existing}")
+            while True:
+                choice = input("[R]esume, [N]ew branch name, [C]ancel? [R]: ").strip().lower()
+                if choice in ("", "r", "resume"):
+                    break
+                if choice in ("n", "new"):
+                    new_branch = input("Enter new branch name: ").strip()
+                    if new_branch:
+                        args.branch = new_branch
+                        return "rename"
+                    print("❌ Branch name cannot be empty")
+                elif choice in ("c", "cancel"):
+                    raise CprojError("Worktree creation cancelled by user")
+        return "resume"
+
+    def _remove_worktree_for_recreate(
+        self, git: "GitWorktree", existing: Path, project_config: ProjectConfig
+    ):
+        """Remove a cproj worktree so it can be recreated; the branch is kept"""
+        if not (existing / ".cproj" / ".agent.json").exists():
+            raise CprojError(
+                f"{existing} is not a cproj worktree; refusing to remove it with --recreate."
+            )
+        # cproj's own files under .cproj/ don't count as user changes
+        if git.has_uncommitted_changes(existing, exclude=[".cproj"]):
+            raise CprojError(
+                f"Worktree {existing} has uncommitted changes; refusing to recreate it."
+            )
+        print(f"🗑️  Removing existing worktree {existing}")
+        git.remove_worktree(existing, force=True)
+        if project_config.is_feature_enabled("port_allocation"):
+            # Port slots are keyed by the configured project name, which can
+            # differ from the repo directory name
+            PortRegistry().deallocate(project_config.get_project_name(), existing)
+
+    def _setup_worktree(
+        self,
+        worktree_path: Path,
+        repo_path: Path,
+        project_name: str,
+        base_branch: str,
+        project_config: ProjectConfig,
+        args,
+    ):
+        """Run all post-creation setup; safe to re-run on a partially set up worktree"""
+        # Write .agent.json first so an interrupted setup is recognisable as cproj's
+        agent_json = AgentJson(worktree_path)
+        agent_json.set_project(project_name, str(repo_path))
+        agent_json.set_workspace(str(worktree_path), args.branch, base_branch)
+        if args.linear:
+            agent_json.set_link("linear", args.linear)
+        agent_json.save()
 
         # Setup environment
         env_setup = EnvironmentSetup(worktree_path)
@@ -4268,17 +4267,9 @@ echo "🔗 Installing MCP servers..."
         # Note: .env file copying is now handled by custom_actions in project.yaml
         # Use action type: copy_env_files
 
-        # Create .agent.json
-        agent_json = AgentJson(worktree_path)
-        agent_json.set_project(project_name, str(repo_path))
-        agent_json.set_workspace(str(worktree_path), args.branch, base_branch)
         agent_json.set_env("python", python_env)
         agent_json.set_env("node", node_env)
         agent_json.set_env("java", java_env)
-
-        if args.linear:
-            agent_json.set_link("linear", args.linear)
-
         agent_json.save()
 
         # Project-specific actions based on configuration
@@ -4303,9 +4294,14 @@ echo "🔗 Installing MCP servers..."
             no_terminal=args.no_terminal,
         )
 
+        agent_json.mark_setup_complete()
+        agent_json.save()
+
         print(f"Created worktree: {worktree_path}")
         print(f"Branch: {args.branch}")
 
+    def _open_worktree(self, worktree_path: Path, args, project_config: ProjectConfig):
+        """Open terminal/editor for a worktree per args and config"""
         # Open terminal by default (unless --no-terminal is specified or auto_terminal is disabled)
         auto_terminal = project_config.is_feature_enabled("auto_terminal", default=True)
         terminal_app = args.terminal or self.config.get("terminal", "Terminal")
@@ -5648,35 +5644,9 @@ echo "🔗 Installing MCP servers..."
         main_repo_path: Path,
         specific_file: Optional[str] = None,
     ):
-        env_patterns = ["**/.env", "**/.env.*"]
-        wt_files: List[Path] = []
-        for pattern in env_patterns:
-            wt_files.extend(worktree_path.glob(pattern))
+        wt_files = find_env_files(worktree_path)
 
         wt_files = [f for f in wt_files if not f.name.endswith(".example")]
-
-        skip_dirs = {"node_modules", ".venv", "venv", "__pycache__", ".git"}
-        filtered = []
-        for f in wt_files:
-            rel_parts = f.relative_to(worktree_path).parts[:-1]
-            if any(part in skip_dirs for part in rel_parts):
-                continue
-            if any(
-                part.startswith(".")
-                and part
-                not in [
-                    ".env",
-                    ".env.local",
-                    ".env.development",
-                    ".env.test",
-                    ".env.production",
-                    ".env.example",
-                ]
-                for part in rel_parts
-            ):
-                continue
-            filtered.append(f)
-        wt_files = filtered
 
         if specific_file:
             if "/" in specific_file:
