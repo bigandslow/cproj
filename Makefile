@@ -104,8 +104,8 @@ check:
 # Development tools check
 dev-check:
 	@echo "Checking development environment..."
-	@echo -n "Python 3.8+: "
-	@python3 -c "import sys; exit(0 if sys.version_info >= (3,8) else 1)" && echo "✅" || echo "❌"
+	@echo -n "Python 3.10+: "
+	@python3 -c "import sys; exit(0 if sys.version_info >= (3,10) else 1)" && echo "✅" || echo "❌"
 	@echo -n "git: "
 	@command -v git >/dev/null 2>&1 && echo "✅" || echo "❌"
 	@echo -n "gh (GitHub CLI): "

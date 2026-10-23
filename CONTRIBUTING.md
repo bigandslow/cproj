@@ -65,7 +65,7 @@ git commit --no-verify -m "message"
 
 ## Code Standards
 
-- **Python**: 3.8+ compatibility required
+- **Python**: 3.10+ compatibility required
 - **Line length**: 100 characters (configured in pyproject.toml)
 - **Type hints**: Required for all public functions
 - **Testing**: All new features must include tests
@@ -98,7 +98,7 @@ git commit --no-verify -m "message"
 ## CI/CD Pipeline
 
 Our GitHub Actions workflow automatically:
-- Tests on Python 3.8-3.12 on Ubuntu and macOS
+- Tests on Python 3.10-3.12 on Ubuntu and macOS
 - Runs linting and formatting checks
 - Performs security scans
 - Measures code coverage
