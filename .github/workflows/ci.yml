@@ -93,7 +93,7 @@ jobs:
 
     - name: Run tests with coverage
       run: |
-        coverage run -m pytest test_cproj.py -v
+        coverage run -m pytest test_cproj.py tests/test_sync_env_worktree.py -v
         coverage report
         coverage xml
 

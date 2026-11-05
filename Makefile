@@ -52,7 +52,7 @@ dev-install:
 # Run tests
 test:
 	@echo "Running tests..."
-	python -m pytest test_cproj.py -v
+	python -m pytest test_cproj.py tests/test_sync_env_worktree.py -v
 
 # Run linting
 lint:

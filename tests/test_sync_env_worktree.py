@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Tests for sync-env worktree detection when .cproj/.agent.json is missing"""
 
+import json
 import os
 import shutil
 import subprocess
@@ -29,6 +30,7 @@ class TestSyncEnvWorktreeDetection(unittest.TestCase):
         _git(self.repo_dir, "init")
         _git(self.repo_dir, "config", "user.email", "test@example.com")
         _git(self.repo_dir, "config", "user.name", "Test User")
+        _git(self.repo_dir, "config", "commit.gpgsign", "false")
         (self.repo_dir / "README.md").write_text("# Test")
         _git(self.repo_dir, "add", "README.md")
         _git(self.repo_dir, "commit", "-m", "init")
@@ -84,6 +86,29 @@ class TestSyncEnvWorktreeDetection(unittest.TestCase):
         self.assertIn("NEW_KEY=from-main", env)
         # Only the requested key moves; the worktree keeps its own values.
         self.assertIn("KEEP=worktree", env)
+
+    def test_agent_json_still_names_the_main_repo_when_present(self):
+        other_main = self.temp_dir / "other"
+        (other_main / "app").mkdir(parents=True)
+        (other_main / "app" / ".env.local").write_text("NEW_KEY=from-agent-json\n")
+        (self.worktree_dir / ".cproj").mkdir()
+        (self.worktree_dir / ".cproj" / ".agent.json").write_text(
+            json.dumps({"project": {"repo_path": str(other_main)}})
+        )
+        os.chdir(self.worktree_dir / "app")
+
+        self.cli.cmd_sync_env(self._args(pull=True, keys="NEW_KEY"))
+
+        env = (self.worktree_dir / "app" / ".env.local").read_text()
+        self.assertIn("NEW_KEY=from-agent-json", env)
+
+    def test_outside_git_is_still_not_a_worktree(self):
+        outside = self.temp_dir / "plain"
+        outside.mkdir()
+        os.chdir(outside)
+
+        with self.assertRaisesRegex(CprojError, "Not in a cproj worktree"):
+            self.cli.cmd_sync_env(self._args())
 
     def test_pull_from_main_checkout_is_still_refused(self):
         os.chdir(self.repo_dir)

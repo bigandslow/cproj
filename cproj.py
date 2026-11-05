@@ -50,7 +50,12 @@ def find_env_files(root: Path) -> List[Path]:
 
 def _linked_worktree_paths(start: Path) -> Optional[Tuple[Path, Path]]:
     """Return (worktree root, main repo root) when start is inside a linked git
-    worktree, or None for a main checkout or a path outside git."""
+    worktree, or None for a main checkout or a path outside git.
+
+    The main repo is the common git dir's parent. That is wrong for a repo made
+    with `--separate-git-dir`, whose checkout git doesn't record (even `git
+    worktree list` reports the git dir's parent), so sync-env prints the main
+    repo it resolved before asking to sync."""
     try:
         out = subprocess.run(
             ["git", "rev-parse", "--show-toplevel", "--git-dir", "--git-common-dir"],
@@ -68,7 +73,10 @@ def _linked_worktree_paths(start: Path) -> Optional[Tuple[Path, Path]]:
     toplevel, git_dir, common_dir = ((start / p).resolve() for p in out)
     # A linked worktree's git dir is <common>/worktrees/<name>; a main checkout's
     # git dir is the common dir itself.
-    if git_dir == common_dir or common_dir.name != ".git":
+    if git_dir == common_dir:
+        return None
+    # A bare repo has no main checkout to sync with.
+    if common_dir.name != ".git":
         return None
     return toplevel, common_dir.parent
 
@@ -5627,6 +5635,7 @@ echo "🔗 Installing MCP servers..."
             return
 
         env_setup = EnvironmentSetup(current_path)
+        print(f"Worktree: {current_path}\nMain repo: {main_repo_path}")
 
         if args.push:
             # worktree -> main
