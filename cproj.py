@@ -19,7 +19,7 @@ import webbrowser
 import yaml
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Sequence
+from typing import Dict, List, Optional, Any, Sequence, Tuple
 
 # Setup logging
 logger = logging.getLogger("cproj")
@@ -46,6 +46,31 @@ def find_env_files(root: Path) -> List[Path]:
             if name == ".env" or name.startswith(".env."):
                 found.append(Path(dirpath) / name)
     return found
+
+
+def _linked_worktree_paths(start: Path) -> Optional[Tuple[Path, Path]]:
+    """Return (worktree root, main repo root) when start is inside a linked git
+    worktree, or None for a main checkout or a path outside git."""
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel", "--git-dir", "--git-common-dir"],
+            cwd=start,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.splitlines()
+    except (subprocess.CalledProcessError, OSError):
+        return None
+    if len(out) != 3:
+        return None
+    # --git-dir and --git-common-dir may be relative to start (git < 2.31 has no
+    # --path-format=absolute), so resolve them against it.
+    toplevel, git_dir, common_dir = ((start / p).resolve() for p in out)
+    # A linked worktree's git dir is <common>/worktrees/<name>; a main checkout's
+    # git dir is the common dir itself.
+    if git_dir == common_dir or common_dir.name != ".git":
+        return None
+    return toplevel, common_dir.parent
 
 
 class CprojError(Exception):
@@ -5569,6 +5594,13 @@ echo "🔗 Installing MCP servers..."
                 main_repo_path = Path(agent_data["project"]["repo_path"])
             except (json.JSONDecodeError, IOError) as e:
                 raise CprojError(f"Failed to read .agent.json: {e}")
+        else:
+            # No .agent.json (an older or hand-made worktree): ask git whether
+            # this is a linked worktree, and if so where its main repo is.
+            linked = _linked_worktree_paths(Path.cwd())
+            if linked:
+                current_path, main_repo_path = linked
+                in_worktree = True
 
         # Validate flag combinations per semantics table
         if not in_worktree:
