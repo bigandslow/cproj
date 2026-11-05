@@ -75,7 +75,7 @@ def _linked_worktree_paths(start: Path) -> Optional[Tuple[Path, Path]]:
     # git dir is the common dir itself.
     if git_dir == common_dir:
         return None
-    # A bare repo has no main checkout to sync with.
+    # A bare repo (or a separate git dir not named .git) has no checkout here.
     if common_dir.name != ".git":
         return None
     return toplevel, common_dir.parent
@@ -5628,6 +5628,7 @@ echo "🔗 Installing MCP servers..."
 
         if not main_repo_path or not main_repo_path.exists():
             raise CprojError(f"Main repo path not found: {main_repo_path}")
+        print(f"Worktree: {current_path}\nMain repo: {main_repo_path}")
 
         # No direction flag: show diff summary
         if not args.push and not args.pull:
@@ -5635,7 +5636,6 @@ echo "🔗 Installing MCP servers..."
             return
 
         env_setup = EnvironmentSetup(current_path)
-        print(f"Worktree: {current_path}\nMain repo: {main_repo_path}")
 
         if args.push:
             # worktree -> main
