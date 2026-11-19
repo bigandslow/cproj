@@ -116,6 +116,32 @@ class TestSyncEnvWorktreeDetection(unittest.TestCase):
         with self.assertRaisesRegex(CprojError, "--pull can only be used from a worktree"):
             self.cli.cmd_sync_env(self._args(pull=True, keys="NEW_KEY"))
 
+    def _add_post_sync_hook(self):
+        (self.repo_dir / ".cproj").mkdir()
+        (self.repo_dir / ".cproj" / "project.yaml").write_text(
+            "name: proj\n"
+            "post_sync_actions:\n"
+            "  - type: run_command\n"
+            "    description: mark the worktree\n"
+            "    command: touch post-sync-ran\n"
+        )
+
+    def test_pull_runs_the_projects_post_sync_hooks_in_the_worktree(self):
+        self._add_post_sync_hook()
+        os.chdir(self.worktree_dir / "app")
+
+        self.cli.cmd_sync_env(self._args(pull=True, keys="NEW_KEY"))
+
+        self.assertTrue((self.worktree_dir / "post-sync-ran").exists())
+
+    def test_dry_run_skips_post_sync_hooks(self):
+        self._add_post_sync_hook()
+        os.chdir(self.worktree_dir / "app")
+
+        self.cli.cmd_sync_env(self._args(pull=True, keys="NEW_KEY", dry_run=True))
+
+        self.assertFalse((self.worktree_dir / "post-sync-ran").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

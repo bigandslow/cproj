@@ -325,6 +325,7 @@ class ProjectConfig:
             "base_branch": config.get("base_branch", "main"),
             "env_diff_ignore_vars": config.get("env_diff_ignore_vars", []),
             "cloud": config.get("cloud") or {},
+            "post_sync_actions": config.get("post_sync_actions", []),
         }
 
     def _get_default_config(self) -> Dict[str, Any]:
