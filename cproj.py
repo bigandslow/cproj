@@ -7,14 +7,18 @@ worktrees
 
 import argparse
 import getpass
+import hashlib
 import json
 import logging
 import os
 import platform
+import re
+import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.parse
 import webbrowser
 import yaml
 from datetime import datetime, timezone
@@ -320,6 +324,7 @@ class ProjectConfig:
             "port_config": config.get("port_config", {}),
             "base_branch": config.get("base_branch", "main"),
             "env_diff_ignore_vars": config.get("env_diff_ignore_vars", []),
+            "cloud": config.get("cloud") or {},
         }
 
     def _get_default_config(self) -> Dict[str, Any]:
@@ -387,6 +392,17 @@ class ProjectConfig:
     def set_base_branch(self, branch: str):
         """Set the default base branch for creating new branches"""
         self._config["base_branch"] = branch
+
+    def get_cloud_config(self) -> Dict[str, Any]:
+        """The project's `cloud:` block with defaults filled in."""
+        cloud = {
+            "enabled": False,
+            "default_location": "ask",
+            "remote_control": True,
+            "worktree_dir": ".claude/worktrees",
+        }
+        cloud.update(self._config.get("cloud") or {})
+        return cloud
 
     def get_custom_actions(self) -> List[Dict[str, Any]]:
         """Get list of custom actions"""
@@ -2097,6 +2113,37 @@ class TerminalAutomation:
             print(f"Failed to open terminal: {e}")
 
     @staticmethod
+    def run_in_terminal(command: str, title: str, terminal_app: str = "Terminal"):
+        """Open a Terminal/iTerm window running <command>. Values reach
+        AppleScript as argv, so quotes in them can't break out."""
+        if terminal_app.lower() == "iterm":
+            script = (
+                "on run argv\n"
+                '  tell application "iTerm"\n'
+                "    create window with default profile\n"
+                "    tell current session of current window\n"
+                "      write text (item 1 of argv)\n"
+                "      set name to (item 2 of argv)\n"
+                "    end tell\n"
+                "  end tell\n"
+                "end run\n"
+            )
+        else:
+            script = (
+                "on run argv\n"
+                '  tell application "Terminal"\n'
+                "    do script (item 1 of argv)\n"
+                "    set custom title of front window to (item 2 of argv)\n"
+                "  end tell\n"
+                "end run\n"
+            )
+        result = subprocess.run(
+            ["osascript", "-", command, title], input=script, text=True, capture_output=True
+        )
+        if result.returncode != 0:
+            print(f"Failed to open terminal; run: {command}")
+
+    @staticmethod
     def open_editor(path: Path, editor: str):
         """Open editor at path"""
         if not editor or not shutil.which(editor):
@@ -2344,6 +2391,183 @@ class GitHubIntegration:
 
         except (subprocess.CalledProcessError, json.JSONDecodeError, Exception):
             return None
+
+
+# ---------------------------------------------------------------------------
+# Cloud envs: worktrees and Claude sessions on a VM reached over ssh.
+#
+# The laptop cproj runs `ssh <host> <remote cproj> remote <op> ...`; the VM
+# cproj (this same file, installed by `cproj cloud bootstrap`) does the work
+# and prints one JSON result line prefixed with REMOTE_JSON_PREFIX as its last
+# output. Everything else it prints (custom actions, git) is progress.
+# ---------------------------------------------------------------------------
+
+# Bump when a `cproj remote` op changes its arguments or result shape.
+CLOUD_PROTOCOL = 1
+REMOTE_JSON_PREFIX = "CPROJ-JSON: "
+# Relative to the VM user's $HOME (ssh commands start there). Non-login ssh
+# commands don't have ~/.local/bin on PATH, so the wrapper is called by path.
+DEFAULT_REMOTE_CPROJ = ".local/bin/cproj"
+SSH_OPTIONS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=15"]
+
+
+def action_applies(action: Dict[str, Any], location: str) -> bool:
+    """True when a custom/post-sync action runs at `location` (local|cloud).
+
+    `where:` is a list (or a single string); unset means local only, so
+    actions written for the laptop never run on a cloud VM by accident.
+    """
+    where = action.get("where", ["local"])
+    if isinstance(where, str):
+        where = [where]
+    return location in where
+
+
+def normalize_git_url(url: str) -> str:
+    """host/owner/repo for https, ssh and scp-like URLs; lowercased, no .git.
+
+    Used to check that the VM clone and the local checkout share an origin
+    (two repos can have the same basename).
+    """
+    url = url.strip()
+    scp = re.match(r"^[\w.-]+@([^:/]+):(.+)$", url)
+    if scp:
+        host, path = scp.group(1), scp.group(2)
+    else:
+        parsed = urllib.parse.urlparse(url)
+        host, path = parsed.hostname or "", parsed.path
+    path = path.strip("/")
+    if path.endswith(".git"):
+        path = path[: -len(".git")]
+    return f"{host}/{path}".lower() if host else path
+
+
+def repo_name_from_url(url: str) -> str:
+    """Last path segment of a git URL without .git (accounting-automation)."""
+    return normalize_git_url(url).rstrip("/").split("/")[-1].split(":")[-1]
+
+
+def cloud_session_name(label: str) -> str:
+    """A tmux session / worktree directory name: [A-Za-z0-9_-], max 60."""
+    name = re.sub(r"[^A-Za-z0-9_-]", "-", label).lstrip("-")[:60]
+    if not name:
+        raise CprojError(f"can't make a session name from {label!r}")
+    return name
+
+
+def cproj_file_sha() -> str:
+    """Short content hash of this file, to spot a stale cproj on the VM."""
+    return hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:12]
+
+
+class CloudEnv:
+    """A cloud env from the user config's `cloud_envs`.
+
+    Config (~/.config/cproj/config.json):
+      cloud_envs.<name>: host (required), work_root (default "work", relative
+        to the VM $HOME), env_file (default /run/agent-vm/{user}/env; {user}
+        is the VM user, filled in on the VM), remote_cproj (default
+        .local/bin/cproj)
+      default_cloud_env, projects.<project>.cloud_env
+    """
+
+    _warned_sha = False
+
+    def __init__(self, name: str, spec: Dict[str, Any]):
+        self.name = name
+        self.host = spec.get("host") or ""
+        if not self.host:
+            raise CprojError(f"cloud env {name!r} has no host in the cproj config")
+        self.work_root = spec.get("work_root", "work")
+        self.env_file = spec.get("env_file", "/run/agent-vm/{user}/env")
+        self.remote_cproj = spec.get("remote_cproj", DEFAULT_REMOTE_CPROJ)
+        if not re.fullmatch(r"[A-Za-z0-9_./~-]+", self.remote_cproj):
+            raise CprojError(f"cloud env {name!r}: remote_cproj has unsafe characters")
+
+    @classmethod
+    def resolve(
+        cls, config: "Config", project_name: Optional[str] = None, override: Optional[str] = None
+    ) -> "CloudEnv":
+        envs = config.get("cloud_envs") or {}
+        project = (config.get("projects") or {}).get(project_name or "", {}) or {}
+        name = override or project.get("cloud_env") or config.get("default_cloud_env")
+        if not name and len(envs) == 1:
+            name = next(iter(envs))
+        if not name or name not in envs:
+            raise CprojError(
+                f"no cloud env configured{' named ' + repr(name) if name else ''}; "
+                f"add one under cloud_envs in {config.config_path}"
+            )
+        return cls(name, envs[name])
+
+    def ssh_argv(self, remote_args: Sequence[str]) -> List[str]:
+        """ssh argv running the VM's cproj; every argument is shell-quoted."""
+        command = " ".join([self.remote_cproj, *(shlex.quote(a) for a in remote_args)])
+        return ["ssh", *SSH_OPTIONS, self.host, command]
+
+    def attach_command(self, session: str) -> str:
+        return f"ssh -t {shlex.quote(self.host)} tmux new -A -s {shlex.quote(session)}"
+
+    def call(self, op: str, args: Sequence[str] = (), echo: bool = True) -> Dict[str, Any]:
+        """Run `cproj remote <op>` on the VM and return its JSON result.
+
+        Non-JSON output is passed through as progress when echo is set.
+        """
+        argv = self.ssh_argv(["remote", op, "--protocol", str(CLOUD_PROTOCOL), *args])
+        try:
+            proc = subprocess.Popen(
+                argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, text=True
+            )
+        except OSError as e:
+            raise CprojError(f"couldn't run ssh: {e}")
+        result = None
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            if line.startswith(REMOTE_JSON_PREFIX):
+                try:
+                    result = json.loads(line[len(REMOTE_JSON_PREFIX) :])
+                except ValueError:
+                    result = None
+            elif echo and line.strip():
+                print(f"  [{self.name}] {line.rstrip()}")
+        rc = proc.wait()
+        if result is None:
+            if rc == 127:
+                raise CprojError(
+                    f"cproj is not installed on {self.host}; run: cproj cloud bootstrap"
+                )
+            raise CprojError(
+                f"cproj remote {op} failed on {self.host} (exit {rc}). If the VM's cproj "
+                "predates cloud support, run: cproj cloud bootstrap"
+            )
+        if result.get("error"):
+            raise CprojError(f"{self.name}: {result['error']}")
+        if result.get("sha") and result["sha"] != cproj_file_sha() and not CloudEnv._warned_sha:
+            CloudEnv._warned_sha = True
+            print(
+                f"⚠️  cproj on {self.name} differs from this one; "
+                "run `cproj cloud bootstrap` to update it",
+                file=sys.stderr,
+            )
+        return result
+
+    def bootstrap_script(self) -> str:
+        """Shell run on the VM by `cproj cloud bootstrap`; cproj.py arrives on stdin.
+
+        Uses the VM's python3 (which must have PyYAML) instead of install.sh's
+        venv + pip, so nothing is downloaded on the VM.
+        """
+        return (
+            "set -e; "
+            "python3 -c 'import yaml' || "
+            "{ echo 'cproj needs python3 with PyYAML on the VM' >&2; exit 1; }; "
+            'd="$HOME/.local/share/cproj"; b="$HOME/.local/bin"; '
+            'mkdir -p "$d" "$b"; '
+            'cat >"$d/cproj.py.new"; mv "$d/cproj.py.new" "$d/cproj.py"; '
+            "printf '%s\\n' '#!/bin/bash' "
+            '\'exec python3 "$HOME/.local/share/cproj/cproj.py" "$@"\' >"$b/cproj.new"; '
+            'chmod +x "$b/cproj.new"; mv "$b/cproj.new" "$b/cproj"'
+        )
 
 
 class CprojCLI:
@@ -2653,11 +2877,71 @@ class CprojCLI:
             help="Skip Claude workspace setup",
         )
         create_parser.add_argument(
+            "--where",
+            choices=["local", "cloud"],
+            help="Create the worktree locally or on the project's cloud env "
+            "(default: the project's cloud.default_location)",
+        )
+        create_parser.add_argument(
+            "--cloud",
+            dest="where",
+            action="store_const",
+            const="cloud",
+            help="Same as --where cloud",
+        )
+        create_parser.add_argument(
+            "--local",
+            dest="where",
+            action="store_const",
+            const="local",
+            help="Same as --where local",
+        )
+        create_parser.add_argument("--cloud-env", help="Cloud env name (default: from config)")
+        create_parser.add_argument(
+            "--no-rc",
+            action="store_true",
+            help="Cloud only: start Claude without Remote Control",
+        )
+        create_parser.add_argument(
             "--recreate",
             action="store_true",
             help="Remove this branch's existing cproj worktree and set it up fresh "
             "(the branch and its commits are kept)",
         )
+
+        # cloud commands
+        cloud_parser = subparsers.add_parser("cloud", help="Cloud env worktrees and sessions")
+        cloud_sub = cloud_parser.add_subparsers(dest="cloud_command")
+        cloud_ls = cloud_sub.add_parser(
+            "ls", aliases=["list"], help="List cloud tmux sessions, worktrees, claude sessions"
+        )
+        cloud_attach = cloud_sub.add_parser("attach", help="Attach to a cloud tmux session")
+        cloud_attach.add_argument("name", help="tmux session name (see: cproj cloud ls)")
+        cloud_attach.add_argument(
+            "--no-terminal", action="store_true", help="Print the attach command only"
+        )
+        cloud_boot = cloud_sub.add_parser(
+            "bootstrap", help="Install or update cproj on the cloud env"
+        )
+        cloud_boot.add_argument("--dry-run", action="store_true", help="Print the commands only")
+        for sp in (cloud_ls, cloud_attach, cloud_boot):
+            sp.add_argument("--cloud-env", help="Cloud env name (default: from config)")
+
+        # remote: VM-side ops called over ssh by the laptop's cproj
+        remote_parser = subparsers.add_parser("remote", help="(internal) VM-side cloud ops")
+        remote_sub = remote_parser.add_subparsers(dest="remote_command")
+        remote_version = remote_sub.add_parser("version")
+        remote_list = remote_sub.add_parser("list")
+        remote_list.add_argument("--work-root", required=True)
+        remote_create = remote_sub.add_parser("create")
+        for opt in ("--work-root", "--repo-name", "--origin", "--branch", "--name", "--env-file"):
+            remote_create.add_argument(opt, required=True)
+        remote_create.add_argument("--base-ref", default="")
+        remote_create.add_argument("--worktree-dir", default=".claude/worktrees")
+        remote_create.add_argument("--rc", dest="rc", action="store_true", default=True)
+        remote_create.add_argument("--no-rc", dest="rc", action="store_false")
+        for sp in (remote_version, remote_list, remote_create):
+            sp.add_argument("--protocol", type=int, required=True)
 
         # review command
         review_parser = subparsers.add_parser("review", help="Review commands")
@@ -2886,6 +3170,18 @@ class CprojCLI:
                 else:
                     # Show review help when no subcommand given
                     parser.parse_args(["review", "--help"])
+            elif parsed_args.command == "cloud":
+                sub = parsed_args.cloud_command
+                if sub in ("ls", "list"):
+                    self.cmd_cloud_ls(parsed_args)
+                elif sub == "attach":
+                    self.cmd_cloud_attach(parsed_args)
+                elif sub == "bootstrap":
+                    self.cmd_cloud_bootstrap(parsed_args)
+                else:
+                    parser.parse_args(["cloud", "--help"])
+            elif parsed_args.command == "remote":
+                self.cmd_remote(parsed_args)
             elif parsed_args.command == "merge":
                 self.cmd_merge(parsed_args)
             elif parsed_args.command in ["list", "ls"]:
@@ -3796,16 +4092,21 @@ echo "🔗 Installing MCP servers..."
         repo_path: Path,
         branch: str = "",
         no_terminal: bool = False,
+        location: str = "local",
     ):
         """Execute custom actions defined in project configuration.
 
         no_terminal is plumbed through to run_command actions as the
         CPROJ_NO_TERMINAL env var so user-defined commands that launch
         terminals (osascript, gnome-terminal, etc.) can honor the flag.
+
+        Only actions whose `where:` includes `location` run; see action_applies.
         """
         actions = project_config.get_custom_actions()
 
         for action in actions:
+            if not action_applies(action, location):
+                continue
             action_type = action.get("type")
 
             if action_type == "copy_workspace_file":
@@ -4086,6 +4387,12 @@ echo "🔗 Installing MCP servers..."
             print(f"✅ Using branch: {args.branch}")
             print()
 
+        if self._resolve_location(args, project_config, args.branch) == "cloud":
+            if getattr(args, "recreate", False):
+                raise CprojError("--recreate does not apply to cloud worktrees")
+            self._create_cloud_worktree(repo_path, project_config, args.branch, base_branch, args)
+            return
+
         # Interactive prompt for Linear URL if not provided and
         # Linear is configured
         if not args.linear and self.config.get("linear_org") and self._is_interactive():
@@ -4351,6 +4658,345 @@ echo "🔗 Installing MCP servers..."
             editor = args.editor or self.config.get("editor", "code")
             if editor:
                 TerminalAutomation.open_editor(worktree_path, editor)
+
+    # ----- cloud envs (laptop side) -----------------------------------------
+
+    def _resolve_location(self, args, project_config: "ProjectConfig", branch: str) -> str:
+        """local or cloud: --where/--cloud/--local, else cloud.default_location.
+
+        `ask` prompts only when interactive; --yes or no tty means local.
+        """
+        cloud = project_config.get_cloud_config()
+        where = getattr(args, "where", None)
+        if where == "cloud" and not cloud.get("enabled"):
+            raise CprojError(
+                f"{project_config.config_path} has no `cloud: {{enabled: true}}`; "
+                "this project isn't set up for cloud worktrees"
+            )
+        if where:
+            return where
+        if not cloud.get("enabled"):
+            return "local"
+        default = cloud.get("default_location", "ask")
+        if default in ("local", "cloud"):
+            return default
+        if not self._is_interactive():
+            return "local"
+        while True:
+            answer = input(f"Create {branch} [l]ocal or [c]loud? [c] ").strip().lower()
+            if answer in ("", "c", "cloud"):
+                return "cloud"
+            if answer in ("l", "local"):
+                return "local"
+            print("Please answer l or c")
+
+    def _origin_url(self, repo_path: Path) -> str:
+        result = subprocess.run(
+            ["git", "-C", str(repo_path), "remote", "get-url", "origin"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            raise CprojError(f"{repo_path} has no origin remote; cloud worktrees need one")
+        return result.stdout.strip()
+
+    def _create_cloud_worktree(
+        self, repo_path: Path, project_config: "ProjectConfig", branch: str, base: str, args
+    ) -> None:
+        """Create <branch> on the cloud env and start Claude there in tmux.
+
+        Nothing is created locally. The VM cproj checks everything before it
+        writes and leaves partial state in place (and says so) if a later step
+        fails.
+        """
+        cloud = project_config.get_cloud_config()
+        env = CloudEnv.resolve(
+            self.config, project_config.get_project_name(), getattr(args, "cloud_env", None)
+        )
+        origin = self._origin_url(repo_path)
+        name = cloud_session_name(branch.rstrip("/").split("/")[-1])
+        rc = bool(cloud.get("remote_control", True)) and not getattr(args, "no_rc", False)
+        print(f"☁️  Creating {branch} on {env.name} ({env.host}) as {name}")
+        result = env.call(
+            "create",
+            [
+                "--work-root",
+                env.work_root,
+                "--repo-name",
+                repo_name_from_url(origin),
+                "--origin",
+                origin,
+                "--branch",
+                branch,
+                "--base-ref",
+                base or "",
+                "--name",
+                name,
+                "--env-file",
+                env.env_file,
+                "--worktree-dir",
+                cloud.get("worktree_dir", ".claude/worktrees"),
+                "--rc" if rc else "--no-rc",
+            ],
+        )
+        print(f"✅ {result['branch']} at {result['worktree']} on {env.name}")
+        print(
+            f"   Claude is running in tmux session {result['session']}"
+            f"{' with Remote Control' if rc else ''}"
+        )
+        self._attach_cloud(
+            env, result["session"], repo_path, name, getattr(args, "no_terminal", False)
+        )
+
+    def _attach_cloud(
+        self, env: CloudEnv, session: str, repo_path: Optional[Path], label: str, no_terminal: bool
+    ) -> None:
+        """Show cloud session <session>: the attach_command config, else a
+        Terminal window running ssh + tmux; just print it with --no-terminal."""
+        ssh_cmd = env.attach_command(session)
+        if no_terminal:
+            print(f"   Attach with: {ssh_cmd}")
+            return
+        template = self.config.get("attach_command")
+        if template:
+            try:
+                command = template.format(
+                    host=shlex.quote(env.host),
+                    session=shlex.quote(session),
+                    repo_path=shlex.quote(str(repo_path or "")),
+                    label=shlex.quote(label),
+                )
+            except (KeyError, IndexError, ValueError) as e:
+                raise CprojError(f"bad attach_command template: {e}")
+            if subprocess.run(command, shell=True).returncode == 0:
+                return
+            print(f"⚠️  attach_command failed; attach with: {ssh_cmd}")
+            return
+        if platform.system() == "Darwin":
+            TerminalAutomation.run_in_terminal(
+                ssh_cmd, f"{label} (cloud)", self.config.get("terminal", "Terminal")
+            )
+        else:
+            print(f"   Attach with: {ssh_cmd}")
+
+    def _cloud_env_for_cwd(self, override: Optional[str]) -> Tuple[CloudEnv, Optional[Path]]:
+        repo_path = self._find_git_root(Path.cwd())
+        project = ProjectConfig(repo_path).get_project_name() if repo_path else None
+        return CloudEnv.resolve(self.config, project, override), repo_path
+
+    def cmd_cloud_ls(self, args):
+        env, _ = self._cloud_env_for_cwd(args.cloud_env)
+        data = env.call("list", ["--work-root", env.work_root], echo=False)
+        print(f"☁️  {env.name} ({env.host})")
+        print("TMUX SESSIONS (attach: cproj cloud attach <name>)")
+        for t in data["tmux"]:
+            state = "attached" if t["attached"] else "detached"
+            print(f"  {t['name']:<30} {state:<9} {t['path']}")
+        if not data["tmux"]:
+            print("  (none)")
+        print("WORKTREES")
+        for w in data["worktrees"]:
+            print(f"  {w['repo']:<22} {w['branch'] or '(detached)':<40} {w['path']}")
+        print("CLAUDE SESSIONS")
+        for c in data["sessions"]:
+            kind = "remote-control" if c.get("entrypoint") == "sdk-cli" else "interactive"
+            print(f"  {c['session'][:8]}  {c['status']:<6} {kind:<14} {c['cwd']}")
+        if not data["sessions"]:
+            print("  (none)")
+
+    def cmd_cloud_attach(self, args):
+        env, repo_path = self._cloud_env_for_cwd(args.cloud_env)
+        data = env.call("list", ["--work-root", env.work_root], echo=False)
+        if args.name not in {t["name"] for t in data["tmux"]}:
+            raise CprojError(f"no tmux session {args.name!r} on {env.name} (see: cproj cloud ls)")
+        self._attach_cloud(env, args.name, repo_path, args.name, args.no_terminal)
+
+    def cmd_cloud_bootstrap(self, args):
+        """Install (or update) this cproj for the VM user, then check it answers."""
+        env, _ = self._cloud_env_for_cwd(args.cloud_env)
+        source = Path(__file__).resolve()
+        argv = ["ssh", *SSH_OPTIONS, env.host, env.bootstrap_script()]
+        version_argv = env.ssh_argv(["remote", "version", "--protocol", str(CLOUD_PROTOCOL)])
+        if args.dry_run:
+            print("Would run:")
+            print(f"  {shlex.join(argv)} < {shlex.quote(str(source))}")
+            print(f"  {shlex.join(version_argv)}")
+            return
+        print(f"☁️  Installing cproj on {env.name} ({env.host})")
+        with source.open("rb") as f:
+            if subprocess.run(argv, stdin=f).returncode != 0:
+                raise CprojError(f"installing cproj on {env.host} failed")
+        data = env.call("version", echo=False)
+        print(f"✅ cproj {data['sha']} (protocol {data['protocol']}) on {env.name}")
+
+    # ----- cloud envs (VM side: `cproj remote <op>`) -------------------------
+
+    def cmd_remote(self, args):
+        """VM-side ops; prints one REMOTE_JSON_PREFIX line as the last output."""
+
+        def emit(data: Dict[str, Any]) -> None:
+            sys.stdout.flush()
+            payload = {"protocol": CLOUD_PROTOCOL, "sha": cproj_file_sha(), **data}
+            print("\n" + REMOTE_JSON_PREFIX + json.dumps(payload), flush=True)
+
+        if args.protocol != CLOUD_PROTOCOL:
+            emit(
+                {
+                    "error": f"protocol mismatch: the laptop's cproj speaks {args.protocol}, "
+                    f"this one {CLOUD_PROTOCOL}; run `cproj cloud bootstrap`"
+                }
+            )
+            sys.exit(1)
+        try:
+            if args.remote_command == "version":
+                data: Dict[str, Any] = {}
+            elif args.remote_command == "create":
+                data = self._remote_create(args)
+            elif args.remote_command == "list":
+                data = self._remote_list(args)
+            else:
+                raise CprojError(f"unknown remote op {args.remote_command}")
+        except CprojError as e:
+            emit({"error": str(e)})
+            sys.exit(1)
+        emit(data)
+
+    @staticmethod
+    def _git_ok(repo: Path, *git_args: str) -> bool:
+        return (
+            subprocess.run(["git", "-C", str(repo), *git_args], capture_output=True).returncode == 0
+        )
+
+    @staticmethod
+    def _env_loader(env_file: str) -> str:
+        """Shell text that exports the VM user's env file, if readable. The
+        file's contents (GH_TOKEN) never go into argv or output."""
+        q = shlex.quote(env_file)
+        return f"[ -r {q} ] && {{ set -a; . {q}; set +a; }}"
+
+    def _remote_create(self, args) -> Dict[str, Any]:
+        work_root = (Path.home() / args.work_root).resolve()
+        repo = work_root / args.repo_name
+        if not (repo / ".git").exists():
+            raise CprojError(
+                f"no clone of {args.repo_name} in {work_root} (first-use clone is not built yet)"
+            )
+        repo = repo.resolve()
+        vm_origin = subprocess.run(
+            ["git", "-C", str(repo), "remote", "get-url", "origin"], capture_output=True, text=True
+        ).stdout.strip()
+        if normalize_git_url(vm_origin) != normalize_git_url(args.origin):
+            raise CprojError(f"{repo}'s origin is {vm_origin or '(none)'}, not {args.origin}")
+        branch, name = args.branch, args.name
+        worktree = repo / args.worktree_dir / name
+        env_file = args.env_file.replace("{user}", getpass.getuser())
+
+        # Pre-flight: nothing is written unless all of these hold.
+        if worktree.exists():
+            raise CprojError(f"{worktree} already exists")
+        if self._git_ok(repo, "show-ref", "-q", "--verify", f"refs/heads/{branch}"):
+            raise CprojError(f"branch {branch} already exists in {repo}")
+        if (
+            subprocess.run(
+                ["tmux", "has-session", "-t", f"={name}"], capture_output=True
+            ).returncode
+            == 0
+        ):
+            raise CprojError(f"tmux session {name} already exists")
+
+        fetch = subprocess.run(
+            [
+                "bash",
+                "-c",
+                f'{self._env_loader(env_file)}; exec git -C "$1" fetch -q origin',
+                "_",
+                str(repo),
+            ]
+        )
+        if fetch.returncode != 0:
+            raise CprojError(f"git fetch origin failed in {repo}")
+        worktree.parent.mkdir(parents=True, exist_ok=True)
+        if self._git_ok(repo, "show-ref", "-q", "--verify", f"refs/remotes/origin/{branch}"):
+            add = ["worktree", "add", "-q", "-b", branch, str(worktree), f"origin/{branch}"]
+        else:
+            base = args.base_ref
+            if base and self._git_ok(
+                repo, "show-ref", "-q", "--verify", f"refs/remotes/origin/{base}"
+            ):
+                start = f"origin/{base}"
+            elif base:
+                start = base
+            else:
+                start = "origin/HEAD"
+            add = ["worktree", "add", "-q", "--no-track", "-b", branch, str(worktree), start]
+        if subprocess.run(["git", "-C", str(repo), *add]).returncode != 0:
+            raise CprojError(f"git worktree add failed for {branch}")
+
+        try:
+            self._execute_custom_actions(
+                ProjectConfig(repo), worktree, repo, branch, no_terminal=True, location="cloud"
+            )
+            claude = "claude" + (f" --remote-control {shlex.quote(name)}" if args.rc else "")
+            # Passed to tmux as the session command, not typed into a shell
+            # (typed keys can be lost while the shell starts); a login shell
+            # takes over when claude exits.
+            command = f'{self._env_loader(env_file)}; {claude}; exec "${{SHELL:-/bin/bash}}" -l'
+            started = subprocess.run(
+                ["tmux", "new-session", "-d", "-s", name, "-c", str(worktree), command]
+            )
+            if started.returncode != 0:
+                raise CprojError("tmux new-session failed")
+        except CprojError as e:
+            raise CprojError(f"{e}; the worktree {worktree} and branch {branch} were left in place")
+        return {"worktree": str(worktree), "session": name, "branch": branch}
+
+    def _remote_list(self, args) -> Dict[str, Any]:
+        work_root = (Path.home() / args.work_root).resolve()
+        fmt = "#{session_name}\t#{session_attached}\t#{pane_current_path}"
+        out = subprocess.run(["tmux", "ls", "-F", fmt], capture_output=True, text=True).stdout
+        tmux = []
+        for line in out.splitlines():
+            parts = line.split("\t")
+            if len(parts) == 3:
+                tmux.append({"name": parts[0], "attached": parts[1] != "0", "path": parts[2]})
+        worktrees = []
+        repos = (
+            sorted(p for p in work_root.iterdir() if (p / ".git").exists())
+            if work_root.is_dir()
+            else []
+        )
+        for repo in repos:
+            porcelain = subprocess.run(
+                ["git", "-C", str(repo), "worktree", "list", "--porcelain"],
+                capture_output=True,
+                text=True,
+            ).stdout
+            for block in porcelain.strip().split("\n\n"):
+                fields = dict(line.partition(" ")[::2] for line in block.splitlines())
+                if "worktree" in fields:
+                    worktrees.append(
+                        {
+                            "repo": repo.name,
+                            "path": fields["worktree"],
+                            "branch": fields.get("branch", "").replace("refs/heads/", ""),
+                        }
+                    )
+        sessions = []
+        for f in sorted((Path.home() / ".claude" / "sessions").glob("*.json")):
+            try:
+                r = json.loads(f.read_text())
+                os.kill(int(r["pid"]), 0)
+            except (OSError, ValueError, KeyError, TypeError):
+                continue
+            sessions.append(
+                {
+                    "session": r.get("sessionId", ""),
+                    "cwd": r.get("cwd", ""),
+                    "status": r.get("status", ""),
+                    "entrypoint": r.get("entrypoint", ""),
+                }
+            )
+        return {"tmux": tmux, "worktrees": worktrees, "sessions": sessions}
 
     def cmd_review_open(self, args):
         """Open review"""
@@ -5818,6 +6464,9 @@ echo "🔗 Installing MCP servers..."
 
         print("\n🔧 Running post-sync hooks...")
         for action in post_sync_actions:
+            # sync-env runs on local worktrees only.
+            if not action_applies(action, "local"):
+                continue
             action_type = action.get("type")
 
             if action_type == "run_command":

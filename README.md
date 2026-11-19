@@ -29,6 +29,8 @@ cproj cleanup
 | Command | Description |
 |---------|-------------|
 | `cproj w create --branch <name>` | Create isolated workspace (re-run to resume an interrupted setup; `--recreate` to start over, keeping the branch) |
+| `cproj w create --where local\|cloud --branch <name>` | Create on the project's cloud env instead (`--cloud`/`--local`; see [Cloud Envs](#cloud-envs)) |
+| `cproj cloud ls\|attach\|bootstrap` | List, attach to, or install cproj on the cloud env |
 | `cproj status` | Show all workspace statuses |
 | `cproj list` | List worktrees |
 | `cproj review open` | Create PR |
@@ -115,7 +117,54 @@ Example:
 | `auto_terminal` | true | Open terminal after worktree creation |
 | `review_agents` | false | Enable AI review agents |
 
-## Environment Setup
+## Cloud Envs
+
+Worktrees and Claude sessions on a VM reached over ssh, each in a VM tmux
+session. Design: [docs/cloud-envs-design.md](docs/cloud-envs-design.md).
+
+User config (`~/.config/cproj/config.json`):
+
+```json
+{
+  "cloud_envs": { "agent-vm": { "host": "chris@100.119.63.101" } },
+  "default_cloud_env": "agent-vm",
+  "attach_command": "c2h attach {host} {session} --repo {repo_path} --label {label}"
+}
+```
+
+Optional per env: `work_root` (default `work`, under the VM `$HOME`),
+`env_file` (default `/run/agent-vm/{user}/env`, `{user}` = the VM user),
+`remote_cproj` (default `.local/bin/cproj`). `projects.<name>.cloud_env`
+picks an env per project. Without `attach_command`, cproj opens Terminal
+running `ssh -t <host> tmux new -A -s <session>`.
+
+Project config (`.cproj/project.yaml`):
+
+```yaml
+cloud:
+  enabled: true
+  default_location: ask   # ask | local | cloud
+  remote_control: true    # claude starts with --remote-control <name> (--no-rc to skip)
+  worktree_dir: .claude/worktrees
+custom_actions:
+  - type: run_command
+    where: [local, cloud]  # default [local]
+    command: ...
+```
+
+- `cproj cloud bootstrap [--dry-run]` copies this `cproj.py` to the VM
+  (`~/.local/share/cproj`, wrapper `~/.local/bin/cproj`, run with the VM's
+  python3, which needs PyYAML). Re-run it after updating cproj; cproj warns
+  when the VM copy differs.
+- `cproj w create --cloud --branch feature/x` checks the VM first (clone
+  present with the same origin; branch, worktree and tmux name free), fetches
+  with the VM user's env file loaded, adds the worktree (tracking
+  `origin/<branch>` if it exists, else from the base without tracking), runs
+  `where: cloud` actions, starts claude in tmux and attaches. Nothing is
+  created locally.
+- `cproj cloud ls`, `cproj cloud attach <name>`.
+
+## Environment Setup## Environment Setup
 
 cproj automatically detects and configures:
 
